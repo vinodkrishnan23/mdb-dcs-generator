@@ -7,6 +7,7 @@ import Transcript from '@/models/Transcript';
 import { generateObject } from 'ai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { technicalSchema, commercialSchema, strategySchema, routerSchema, type DCSData } from '@/lib/schemas';
+import { z } from 'zod';
 
 // Configure Google AI
 const googleAI = createGoogleGenerativeAI({
@@ -145,10 +146,46 @@ ${combinedText}`
       
       const workloadId = crypto.randomUUID();
       
-      // Create scoping instruction for agents
-      const scopingInstruction = `FOCUS ONLY on the workload named '${opp.workloadName}' (${opp.contextDescription}). IGNORE details about other apps/workloads.`;
+      // ---------------------------------------------
+      // STEP 2a: THE SLICER AGENT (The Firewall)
+      // ---------------------------------------------
+      console.log(`  -> Running Slicer Agent for: ${opp.workloadName}`);
+      const slicerResult = await generateObject({
+        model: googleAI('gemini-3-pro-preview'),
+        schema: z.object({
+          sanitizedContext: z.string().describe("The rewritten transcript containing ONLY information relevant to the specified workload.")
+        }),
+        experimental_telemetry: { isEnabled: true },
+        prompt: `You are a Context Filter. Read the transcript below.
 
-      // Run 3 agents in parallel for this workload
+REWRITE the transcript to include ONLY the dialogue, facts, and context relevant to the workload: **"${opp.workloadName}"**.
+
+**WORKLOAD CONTEXT:**
+${opp.contextDescription}
+
+**RULES:**
+1. REMOVE all discussion about other projects/workloads.
+2. IF a metric (e.g. '5TB data') is not explicitly linked to this workload, DELETE IT.
+3. DELETE dates, stakeholder names, or technical details NOT relevant to this workload.
+4. PRESERVE all dates, stakeholder names, technical specs, and pain points that ARE relevant to this workload.
+5. RETURN only the filtered text (no summaries or commentary).
+
+**ORIGINAL TRANSCRIPT:**
+${combinedText}`
+      });
+
+      // Track Slicer tokens
+      totalInputTokens += (slicerResult.usage?.inputTokens || 0);
+      totalOutputTokens += (slicerResult.usage?.outputTokens || 0);
+      totalTokens += (slicerResult.usage?.totalTokens || 0);
+
+      const sanitizedContext = slicerResult.object.sanitizedContext;
+      console.log(`  -> Slicer completed. Sanitized context length: ${sanitizedContext.length} chars`);
+
+      // ---------------------------------------------
+      // STEP 2b: THE SCOPED EXTRACTION CHAIN
+      // ---------------------------------------------
+      // Run 3 agents in parallel for this workload using sanitizedContext
       const [technicalResult, commercialResult, strategyResult] = await Promise.all([
         // Agent 1: Technical Architect
         generateObject({
@@ -156,8 +193,6 @@ ${combinedText}`
           schema: technicalSchema,
           experimental_telemetry: { isEnabled: true },
           prompt: `You are a Principal Architect. Extract ONLY technical evidence: specific instance types (e.g. m5.large), database versions, topology (Replica Set vs Sharded), and metrics (latency, throughput). Ignore sales politics.
-
-${scopingInstruction}
 
 **B. TECHNICAL DEEP DIVE (Current vs. Future)**
 - **Current State Description:** Provide a detailed explanation of the current solution and architecture, including how the system works today, what technologies are in use, and the overall technical landscape.
@@ -174,7 +209,7 @@ ${scopingInstruction}
   - **Outcomes:** Measurable success metrics (e.g., "P99 < 10ms").
 
 TRANSCRIPT:
-${combinedText}`
+${sanitizedContext}`
         }),
 
         // Agent 2: Commercial Manager
@@ -183,8 +218,6 @@ ${combinedText}`
           schema: commercialSchema,
           experimental_telemetry: { isEnabled: true },
           prompt: `You are a Sales Manager. Extract ONLY: Stakeholders (Buyer vs Champion), Partner ecosystem (Cloud/SI), and Timelines (Compelling Events). Ignore technical logs.
-
-${scopingInstruction}
 
 **A. STAKEHOLDERS (The "Political Map")**
 - Identify **Who reports to whom?** (e.g., "Engineering Manager reports to CTO").
@@ -204,7 +237,7 @@ ${scopingInstruction}
 - **All Dates Discussed:** Capture ALL dates mentioned in the call with their context (e.g., "March 15 - PoC completion deadline", "April 1 - Security review", "Q2 - Budget approval cycle", "June 30 - Current license expiration").
 
 TRANSCRIPT:
-${combinedText}`
+${sanitizedContext}`
         }),
 
         // Agent 3: Deal Strategist
@@ -213,8 +246,6 @@ ${combinedText}`
           schema: strategySchema,
           experimental_telemetry: { isEnabled: true },
           prompt: `You are a Deal Strategist. Determine the Sales Motion (Migrate/Replace/Launch/Select) based on strict definitions. Map pain points to Value Drivers (Compete, Save, Risk, Velocity).
-
-${scopingInstruction}
 
 **A. VALUE DRIVERS (The "Why Now")**
 Map every pain point to one of these 4 pillars:
@@ -235,7 +266,7 @@ Map every pain point to one of these 4 pillars:
 - **Fast:** Decision made, just need to close/consume.
 
 TRANSCRIPT:
-${combinedText}`
+${sanitizedContext}`
         })
       ]);
 
