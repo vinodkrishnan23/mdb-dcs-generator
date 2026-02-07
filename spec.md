@@ -141,6 +141,22 @@ Run the **3-Agent Chain** (Technical, Commercial, Strategy) in parallel using th
 > - **Classic:** Complex, competitive.
 > - **Sprint:** Urgent, single decision maker.
 > - **Fast:** Decision made, execution focus."
+> **D. THE 3 WHYS (Strict Qualification)**
+> 1. **Why Anything?** (Pain & Objective): Look for 'Bleeding Neck' issues. Why can't they stay on the current system? 
+>    - *If found:* Extract specific pains (e.g., 'Crashes every Friday').
+>    - *If missing:* Mark as MISSING.
+> 2. **Why MongoDB?** (Differentiation): Why us? Why not Postgres or DynamoDB or any otehr database?
+>    - *If found:* Map features to pains (e.g., 'Relational Migrator reduces risk').
+>    - *If missing:* Mark as MISSING.
+> 3. **Why Now?** (Urgency): Is there a Compelling Event?
+>    - *If found:* Extract the Date and the Event.
+>    - *If missing:* Mark as MISSING. 'Q4' is not a compelling event; 'Audit on Nov 1st' is.
+>
+> **E. GAP ANALYSIS (The Coach)**
+> based *strictly* on what is MISSING in the 3 Whys above, generate 3-5 Discovery Questions for the Sales Rep.
+> - **Bad Question:** 'Why do you want to move now?'
+> - **Good Question:** 'You mentioned the Oracle license expires in Q4—what is the specific date, and what is the financial penalty if we miss that window?'
+> - **Good Question:** 'You mentioned latency is an issue—how is that specifically impacting your mobile users' cart abandonment rate?'"
 
 **Aggregation:**
 - Wait for all Promises to resolve.
@@ -227,8 +243,62 @@ export const strategySchema = z.object({
   valueDrivers: z.array(z.object({
     category: z.enum(['Compete / Revenue', 'Save Money', 'Reduce Risk', 'Dev Velocity']),
     justification: z.string().describe("Evidence from text")
-  }))
+  })),
+  // The "3 Whys" Framework
+  threeWhys: z.object({
+    whyAnything: z.object({
+      status: z.enum(['FOUND', 'PARTIAL', 'MISSING']),
+      challenges: z.array(z.string()).describe("Pain points making current state untenable (e.g. 'Downtime costs $10k/hr')"),
+      objectives: z.array(z.string()).describe("Future goals (e.g. 'Scale to 1M users')"),
+      missingInfo: z.string().optional().describe("What specific details are missing?")
+    }),
+    whyMongoDB: z.object({
+      status: z.enum(['FOUND', 'PARTIAL', 'MISSING']),
+      keyCapabilities: z.array(z.string()).describe("MongoDB features mapped to objectives (e.g. 'Time Series for IoT data')"),
+      differentiators: z.array(z.string()).describe("Why not the competitor? (e.g. 'DocDB lacks compression')"),
+      missingInfo: z.string().optional().describe("What specific details are missing?")
+    }),
+    whyNow: z.object({
+      status: z.enum(['FOUND', 'PARTIAL', 'MISSING']),
+      compellingEvent: z.string().optional().describe("The hard deadline or event (e.g. 'License renewal on Oct 1st')"),
+      businessImpactOfDelay: z.string().optional().describe("What happens if they do nothing now?"),
+      missingInfo: z.string().optional().describe("What specific details are missing?")
+    })
+    }),
+
+  // Contextual Discovery Questions (Gap Analysis)
+  gapAnalysis: z.object({
+    discoveryQuestions: z.array(z.string()).describe("3-5 hyper-specific, open-ended questions the Rep should ask next time to fill the missing 'Why' information.")
+  })
 });
+
+UI:
+
+app/page.tsx: Dashboard of accounts.
+
+app/account/[id]/page.tsx:
+
+Left Col: Upload component.
+
+### Right Column: The DCS Display
+- **Check:** If `account.dcsData` is an array with length > 1:
+  - Render a **Tab Bar** at the top: `[ Workload A ] [ Workload B ]`.
+  - Default to the first tab.
+- **Render:** The DCS Table for the selected workload.
+- **Features:**
+  - Group "Current State" and "Future State" side-by-side.
+  - Use `lucide-react` icons for sections (User icon for People, Server icon for Tech).
+**New Section: The "3 Whys" Qualification Card**
+- Render a 3-column Grid (Why Anything, Why MongoDB, Why Now).
+- **Visual Status:**
+  - If `status === 'FOUND'`: Show Green Checkmark + Content.
+  - If `status === 'MISSING'`: Show Red Warning Icon + "Data Missing".
+- **Discovery Coach:**
+  - Below the grid, render a "Suggested Discovery Questions" box.
+  - Display the `gapAnalysis.discoveryQuestions` list.
+  - Style this distinctively (e.g., a yellow/gold border) to alert the Rep that these are their next steps.
+
+Execute this plan. Start by generating the Mongoose models.
 
 ## 1.1 Clarifications & Logic Rules
 

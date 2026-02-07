@@ -1,4 +1,5 @@
 import { type DCSData } from '@/lib/schemas';
+import { CheckCircle2, AlertCircle, HelpCircle } from 'lucide-react';
 
 interface DCSDisplayProps {
   dcsData: DCSData;
@@ -46,6 +47,178 @@ export function DCSDisplay({ dcsData, accountName }: DCSDisplayProps) {
           </tr>
         </tbody>
       </table>
+
+      {/* The "3 Whys" Qualification Card */}
+      <div className="border-2 border-blue-300 bg-blue-50 rounded-lg p-6 mb-4">
+        <h3 className="text-xl font-bold text-blue-900 mb-4">The "3 Whys" Qualification Framework</h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          {/* Why Anything? */}
+          <div className="bg-white rounded-lg p-4 border border-gray-200">
+            <div className="flex items-center mb-3">
+              {strategy.threeWhys.whyAnything.status === 'FOUND' && (
+                <CheckCircle2 className="w-6 h-6 text-green-600 mr-2" />
+              )}
+              {strategy.threeWhys.whyAnything.status === 'PARTIAL' && (
+                <HelpCircle className="w-6 h-6 text-yellow-600 mr-2" />
+              )}
+              {strategy.threeWhys.whyAnything.status === 'MISSING' && (
+                <AlertCircle className="w-6 h-6 text-red-600 mr-2" />
+              )}
+              <h4 className="font-bold text-gray-800">Why Anything?</h4>
+            </div>
+            
+            {strategy.threeWhys.whyAnything.status !== 'MISSING' ? (
+              <>
+                {strategy.threeWhys.whyAnything.challenges.length > 0 && (
+                  <div className="mb-2">
+                    <p className="text-sm font-semibold text-gray-700">Challenges:</p>
+                    <ul className="list-disc list-inside text-sm text-gray-600">
+                      {strategy.threeWhys.whyAnything.challenges.map((c, i) => (
+                        <li key={i}>{c}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {strategy.threeWhys.whyAnything.objectives.length > 0 && (
+                  <div className="mb-2">
+                    <p className="text-sm font-semibold text-gray-700">Objectives:</p>
+                    <ul className="list-disc list-inside text-sm text-gray-600">
+                      {strategy.threeWhys.whyAnything.objectives.map((o, i) => (
+                        <li key={i}>{o}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {strategy.threeWhys.whyAnything.missingInfo && (
+                  <p className="text-sm text-yellow-700 italic">{strategy.threeWhys.whyAnything.missingInfo}</p>
+                )}
+              </>
+            ) : (
+              <div className="text-red-700 text-sm font-medium">
+                ⚠️ Data Missing
+                {strategy.threeWhys.whyAnything.missingInfo && (
+                  <p className="text-xs text-red-600 mt-1">{strategy.threeWhys.whyAnything.missingInfo}</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Why MongoDB? */}
+          <div className="bg-white rounded-lg p-4 border border-gray-200">
+            <div className="flex items-center mb-3">
+              {strategy.threeWhys.whyMongoDB.status === 'FOUND' && (
+                <CheckCircle2 className="w-6 h-6 text-green-600 mr-2" />
+              )}
+              {strategy.threeWhys.whyMongoDB.status === 'PARTIAL' && (
+                <HelpCircle className="w-6 h-6 text-yellow-600 mr-2" />
+              )}
+              {strategy.threeWhys.whyMongoDB.status === 'MISSING' && (
+                <AlertCircle className="w-6 h-6 text-red-600 mr-2" />
+              )}
+              <h4 className="font-bold text-gray-800">Why MongoDB?</h4>
+            </div>
+            
+            {strategy.threeWhys.whyMongoDB.status !== 'MISSING' ? (
+              <>
+                {strategy.threeWhys.whyMongoDB.keyCapabilities.length > 0 && (
+                  <div className="mb-2">
+                    <p className="text-sm font-semibold text-gray-700">Key Capabilities:</p>
+                    <ul className="list-disc list-inside text-sm text-gray-600">
+                      {strategy.threeWhys.whyMongoDB.keyCapabilities.map((c, i) => (
+                        <li key={i}>{c}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {strategy.threeWhys.whyMongoDB.differentiators.length > 0 && (
+                  <div className="mb-2">
+                    <p className="text-sm font-semibold text-gray-700">Differentiators:</p>
+                    <ul className="list-disc list-inside text-sm text-gray-600">
+                      {strategy.threeWhys.whyMongoDB.differentiators.map((d, i) => (
+                        <li key={i}>{d}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {strategy.threeWhys.whyMongoDB.missingInfo && (
+                  <p className="text-sm text-yellow-700 italic">{strategy.threeWhys.whyMongoDB.missingInfo}</p>
+                )}
+              </>
+            ) : (
+              <div className="text-red-700 text-sm font-medium">
+                ⚠️ Data Missing
+                {strategy.threeWhys.whyMongoDB.missingInfo && (
+                  <p className="text-xs text-red-600 mt-1">{strategy.threeWhys.whyMongoDB.missingInfo}</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Why Now? */}
+          <div className="bg-white rounded-lg p-4 border border-gray-200">
+            <div className="flex items-center mb-3">
+              {strategy.threeWhys.whyNow.status === 'FOUND' && (
+                <CheckCircle2 className="w-6 h-6 text-green-600 mr-2" />
+              )}
+              {strategy.threeWhys.whyNow.status === 'PARTIAL' && (
+                <HelpCircle className="w-6 h-6 text-yellow-600 mr-2" />
+              )}
+              {strategy.threeWhys.whyNow.status === 'MISSING' && (
+                <AlertCircle className="w-6 h-6 text-red-600 mr-2" />
+              )}
+              <h4 className="font-bold text-gray-800">Why Now?</h4>
+            </div>
+            
+            {strategy.threeWhys.whyNow.status !== 'MISSING' ? (
+              <>
+                {strategy.threeWhys.whyNow.compellingEvent && (
+                  <div className="mb-2">
+                    <p className="text-sm font-semibold text-gray-700">Compelling Event:</p>
+                    <p className="text-sm text-gray-600">{strategy.threeWhys.whyNow.compellingEvent}</p>
+                  </div>
+                )}
+                {strategy.threeWhys.whyNow.businessImpactOfDelay && (
+                  <div className="mb-2">
+                    <p className="text-sm font-semibold text-gray-700">Impact of Delay:</p>
+                    <p className="text-sm text-gray-600">{strategy.threeWhys.whyNow.businessImpactOfDelay}</p>
+                  </div>
+                )}
+                {strategy.threeWhys.whyNow.missingInfo && (
+                  <p className="text-sm text-yellow-700 italic">{strategy.threeWhys.whyNow.missingInfo}</p>
+                )}
+              </>
+            ) : (
+              <div className="text-red-700 text-sm font-medium">
+                ⚠️ Data Missing
+                {strategy.threeWhys.whyNow.missingInfo && (
+                  <p className="text-xs text-red-600 mt-1">{strategy.threeWhys.whyNow.missingInfo}</p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Discovery Coach Section */}
+        <div className="border-2 border-yellow-400 bg-yellow-50 rounded-lg p-4">
+          <h4 className="font-bold text-yellow-900 mb-2 flex items-center">
+            <HelpCircle className="w-5 h-5 mr-2" />
+            Discovery Coach: Suggested Questions for Next Call
+          </h4>
+          {strategy.gapAnalysis.discoveryQuestions.length > 0 ? (
+            <ul className="space-y-2">
+              {strategy.gapAnalysis.discoveryQuestions.map((q, i) => (
+                <li key={i} className="text-sm text-gray-800 flex">
+                  <span className="font-bold text-yellow-700 mr-2">{i + 1}.</span>
+                  <span>{q}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-gray-600">No additional discovery questions needed - all critical information captured.</p>
+          )}
+        </div>
+      </div>
 
       {/* Stakeholders Table */}
       <table className="w-full border-collapse border border-gray-300 mb-4">

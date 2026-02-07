@@ -14,7 +14,7 @@ export default async function Home() {
             MongoDB DCS Generator
           </h1>
           <p className="text-green-600">
-            Generate Discovery Capture Sheets from sales call transcripts
+            Generate Discovery Capture Sheets from your call transcripts
           </p>
         </div>
 

@@ -73,7 +73,34 @@ export const strategySchema = z.object({
   valueDrivers: z.array(z.object({
     category: z.enum(['Compete / Revenue', 'Save Money', 'Reduce Risk', 'Dev Velocity']),
     justification: z.string().describe("Evidence from text")
-  }))
+  })),
+  
+  // The "3 Whys" Framework
+  threeWhys: z.object({
+    whyAnything: z.object({
+      status: z.enum(['FOUND', 'PARTIAL', 'MISSING']),
+      challenges: z.array(z.string()).describe("Pain points making current state untenable (e.g. 'Downtime costs $10k/hr')"),
+      objectives: z.array(z.string()).describe("Future goals (e.g. 'Scale to 1M users')"),
+      missingInfo: z.string().optional().describe("What specific details are missing?")
+    }),
+    whyMongoDB: z.object({
+      status: z.enum(['FOUND', 'PARTIAL', 'MISSING']),
+      keyCapabilities: z.array(z.string()).describe("MongoDB features mapped to objectives (e.g. 'Time Series for IoT data')"),
+      differentiators: z.array(z.string()).describe("Why not the competitor? (e.g. 'DocDB lacks compression')"),
+      missingInfo: z.string().optional().describe("What specific details are missing?")
+    }),
+    whyNow: z.object({
+      status: z.enum(['FOUND', 'PARTIAL', 'MISSING']),
+      compellingEvent: z.string().optional().describe("The hard deadline or event (e.g. 'License renewal on Oct 1st')"),
+      businessImpactOfDelay: z.string().optional().describe("What happens if they do nothing now?"),
+      missingInfo: z.string().optional().describe("What specific details are missing?")
+    })
+  }),
+
+  // Contextual Discovery Questions (Gap Analysis)
+  gapAnalysis: z.object({
+    discoveryQuestions: z.array(z.string()).describe("3-5 hyper-specific, open-ended questions the Rep should ask next time to fill the missing 'Why' information.")
+  })
 });
 
 // Combined DCS type

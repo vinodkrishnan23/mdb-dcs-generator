@@ -265,6 +265,23 @@ Map every pain point to one of these 4 pillars:
 - **Sprint:** Urgent, single decision maker, leaning MongoDB.
 - **Fast:** Decision made, just need to close/consume.
 
+**D. THE 3 WHYS (Strict Qualification)**
+1. **Why Anything?** (Pain & Objective): Look for 'Bleeding Neck' issues. Why can't they stay on the current system?
+   - *If found:* Extract specific pains (e.g., 'Crashes every Friday') and objectives (e.g., 'Scale to 1M users').
+   - *If missing:* Mark status as MISSING and note what's missing.
+2. **Why MongoDB?** (Differentiation): Why us? Why not Postgres or DynamoDB or any other database?
+   - *If found:* Map features to pains (e.g., 'Relational Migrator reduces risk') and note differentiators.
+   - *If missing:* Mark status as MISSING and note what's missing.
+3. **Why Now?** (Urgency): Is there a Compelling Event?
+   - *If found:* Extract the Date and the Event (e.g., 'Audit on Nov 1st'). 'Q4' is not specific enough.
+   - *If missing:* Mark status as MISSING. Note what's needed.
+
+**E. GAP ANALYSIS (The Coach)**
+Based *strictly* on what is MISSING in the 3 Whys above, generate 3-5 Discovery Questions for the Sales Rep.
+- **Bad Question:** 'Why do you want to move now?'
+- **Good Question:** 'You mentioned the Oracle license expires in Q4—what is the specific date, and what is the financial penalty if we miss that window?'
+- **Good Question:** 'You mentioned latency is an issue—how is that specifically impacting your mobile users' cart abandonment rate?'
+
 TRANSCRIPT:
 ${sanitizedContext}`
         })
