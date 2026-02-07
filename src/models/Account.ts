@@ -1,0 +1,54 @@
+import mongoose, { Schema, Document, Model } from 'mongoose';
+
+export interface IAccount extends Document {
+  name: string;
+  industryContext?: string;
+  transcriptIds: mongoose.Types.ObjectId[];
+  dcsData: any[]; // Array of DCS objects
+  status: 'IDLE' | 'PROCESSING' | 'COMPLETED';
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    estimatedCost: number;
+  };
+  createdAt: Date;
+}
+
+const AccountSchema: Schema = new Schema({
+  name: {
+    type: String,
+    required: true,
+  },
+  industryContext: {
+    type: String,
+    default: '',
+  },
+  transcriptIds: [{
+    type: Schema.Types.ObjectId,
+    ref: 'Transcript',
+  }],
+  dcsData: {
+    type: [Schema.Types.Mixed],
+    default: [],
+  },
+  status: {
+    type: String,
+    enum: ['IDLE', 'PROCESSING', 'COMPLETED'],
+    default: 'IDLE',
+  },
+  usage: {
+    promptTokens: { type: Number },
+    completionTokens: { type: Number },
+    totalTokens: { type: Number },
+    estimatedCost: { type: Number },
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
+const Account: Model<IAccount> = mongoose.models.Account || mongoose.model<IAccount>('Account', AccountSchema);
+
+export default Account;
