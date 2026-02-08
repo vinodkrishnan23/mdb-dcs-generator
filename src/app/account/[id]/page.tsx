@@ -1,7 +1,8 @@
 import { getAccountDetails } from '@/app/actions';
 import { TranscriptUploader } from '@/components/TranscriptUploader';
 import { DCSGenerator } from '@/components/DCSGenerator';
-import { ArrowLeft, FileText, RefreshCw } from 'lucide-react';
+import { DCSPreview } from '@/components/DCSPreview';
+import { ArrowLeft, FileText } from 'lucide-react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
@@ -44,7 +45,7 @@ export default async function AccountPage({ params }: AccountPageProps) {
             <div className="text-right">
               <div className="text-sm text-green-500">Status</div>
               <div className="text-lg font-semibold text-green-800">
-                {account.status === 'GENERATING' ? 'Generating DCS...' : 
+                {account.status === 'PROCESSING' ? 'Generating DCS...' : 
                  account.status === 'COMPLETED' ? 'DCS Ready' : 'Ready to process'}
               </div>
             </div>
@@ -103,40 +104,13 @@ export default async function AccountPage({ params }: AccountPageProps) {
               Discovery Capture Sheet
             </h2>
             
-            {account.status === 'COMPLETED' && account.dcsData && account.dcsData.length > 0 ? (
-              <div className="text-center py-8">
-                <div className="mb-4">
-                  <FileText className="w-16 h-16 text-green-500 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold text-green-800 mb-2">
-                    DCS Generated Successfully
-                  </h3>
-                  <p className="text-green-600 mb-2">
-                    {account.dcsData.length} {account.dcsData.length === 1 ? 'workload' : 'workloads'} identified
-                  </p>
-                  <p className="text-sm text-gray-600 mb-6">
-                    Your Discovery Capture Sheet is ready to view
-                  </p>
-                </div>
-                
-                <Link
-                  href={`/dcs/${account._id}`}
-                  className="inline-flex items-center px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 text-lg font-semibold"
-                >
-                  <FileText className="w-5 h-5 mr-2" />
-                  View Full DCS
-                </Link>
-              </div>
-            ) : account.status === 'PROCESSING' ? (
-              <div className="text-center py-8">
-                <RefreshCw className="w-16 h-16 text-green-600 animate-spin mx-auto mb-4" />
-                <p className="text-green-700 text-lg">Analyzing transcripts and generating DCS...</p>
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <FileText className="w-16 h-16 text-green-400 mx-auto mb-4" />
-                <p className="text-green-600 text-lg">Upload transcripts and generate DCS to see results</p>
-              </div>
-            )}
+            <DCSPreview 
+              accountId={account._id}
+              initialStatus={account.status}
+              initialProgressStep={account.progressStep}
+              initialProgressDetails={account.progressDetails}
+              initialDcsData={account.dcsData}
+            />
           </div>
         </div>
       </div>

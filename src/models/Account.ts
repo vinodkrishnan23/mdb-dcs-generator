@@ -6,6 +6,12 @@ export interface IAccount extends Document {
   transcriptIds: mongoose.Types.ObjectId[];
   dcsData: any[]; // Array of DCS objects
   status: 'IDLE' | 'PROCESSING' | 'COMPLETED';
+  progressStep?: string;
+  progressDetails?: {
+    currentWorkload?: string;
+    totalWorkloads?: number;
+    completedWorkloads?: number;
+  };
   usage?: {
     promptTokens: number;
     completionTokens: number;
@@ -36,6 +42,15 @@ const AccountSchema: Schema = new Schema({
     type: String,
     enum: ['IDLE', 'PROCESSING', 'COMPLETED'],
     default: 'IDLE',
+  },
+  progressStep: {
+    type: String,
+    default: '',
+  },
+  progressDetails: {
+    currentWorkload: { type: String },
+    totalWorkloads: { type: Number },
+    completedWorkloads: { type: Number },
   },
   usage: {
     promptTokens: { type: Number },

@@ -66,9 +66,55 @@ export async function generateDCS(accountId: string) {
   try {
     await dbConnect();
     
-    // Set status to PROCESSING
-    await Account.findByIdAndUpdate(accountId, { status: 'PROCESSING' });
+    // Set status to PROCESSING with router step
+    await Account.findByIdAndUpdate(
+      accountId, 
+      { 
+        status: 'PROCESSING',
+        progressStep: 'router',
+        progressDetails: {}
+      }
+    );
+    
     revalidatePath(`/account/${accountId}`);
+
+    // Start the actual generation process without awaiting it
+    // This allows us to return immediately while generation continues
+    processDCSGeneration(accountId).catch(error => {
+      console.error('Error in background DCS generation:', error);
+      // Update status to ERROR on failure
+      Account.findByIdAndUpdate(accountId, { status: 'IDLE' }).catch(console.error);
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error starting DCS generation:', error);
+    return { success: false, error: 'Failed to start DCS generation' };
+  }
+}
+
+export async function resetAccountStatus(accountId: string) {
+  try {
+    await dbConnect();
+    
+    await Account.findByIdAndUpdate(accountId, {
+      status: 'IDLE',
+      progressStep: '',
+      progressDetails: {}
+    });
+    
+    revalidatePath(`/account/${accountId}`);
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error resetting account status:', error);
+    return { success: false, error: 'Failed to reset status' };
+  }
+}
+
+async function processDCSGeneration(accountId: string) {
+  try {
+    await dbConnect();
 
     // Fetch all transcripts for this account
     const account = await Account.findById(accountId).populate('transcriptIds');
@@ -115,11 +161,22 @@ ${combinedText}`
 
     console.log(`Filtered to ${validOpportunities.length} valid opportunities (confidence >= 0.6)`);
 
+    // Update progress with identified workloads count
+    await Account.findByIdAndUpdate(accountId, {
+      progressStep: 'router',
+      progressDetails: {
+        totalWorkloads: validOpportunities.length,
+        completedWorkloads: 0
+      }
+    });
+
     if (validOpportunities.length === 0) {
       // No valid workloads found
       await Account.findByIdAndUpdate(accountId, {
         dcsData: [],
         status: 'COMPLETED',
+        progressStep: '',
+        progressDetails: {},
         usage: {
           promptTokens: routerResult.usage?.inputTokens || 0,
           completionTokens: routerResult.usage?.outputTokens || 0,
@@ -127,8 +184,7 @@ ${combinedText}`
           estimatedCost: ((routerResult.usage?.totalTokens || 0) / 1000) * 0.001
         }
       });
-      revalidatePath(`/account/${accountId}`);
-      return { success: true, dcsData: [] };
+      return;
     }
 
     console.log('=== PASS 2: Extracting Details for Each Workload ===');
@@ -138,13 +194,21 @@ ${combinedText}`
     let totalOutputTokens = routerResult.usage?.outputTokens || 0;
     let totalTokens = routerResult.usage?.totalTokens || 0;
 
-    // PASS 2: For each valid workload, run the 3-agent extraction in parallel
-    const dcsArray: DCSData[] = [];
-
-    for (const opp of validOpportunities) {
+    // PASS 2: Process all workloads in parallel
+    const workloadPromises = validOpportunities.map(async (opp, index) => {
       console.log(`\n--- Processing: ${opp.workloadName} ---`);
       
       const workloadId = crypto.randomUUID();
+      
+      // Update progress: Slicer for this workload
+      await Account.findByIdAndUpdate(accountId, {
+        progressStep: 'slicer',
+        progressDetails: {
+          currentWorkload: opp.workloadName,
+          totalWorkloads: validOpportunities.length,
+          completedWorkloads: index
+        }
+      });
       
       // ---------------------------------------------
       // STEP 2a: THE SLICER AGENT (The Firewall)
@@ -174,13 +238,18 @@ ${opp.contextDescription}
 ${combinedText}`
       });
 
-      // Track Slicer tokens
-      totalInputTokens += (slicerResult.usage?.inputTokens || 0);
-      totalOutputTokens += (slicerResult.usage?.outputTokens || 0);
-      totalTokens += (slicerResult.usage?.totalTokens || 0);
-
       const sanitizedContext = slicerResult.object.sanitizedContext;
       console.log(`  -> Slicer completed. Sanitized context length: ${sanitizedContext.length} chars`);
+
+      // Update progress: Running 3 agents
+      await Account.findByIdAndUpdate(accountId, {
+        progressStep: 'agents',
+        progressDetails: {
+          currentWorkload: opp.workloadName,
+          totalWorkloads: validOpportunities.length,
+          completedWorkloads: index
+        }
+      });
 
       // ---------------------------------------------
       // STEP 2b: THE SCOPED EXTRACTION CHAIN
@@ -268,16 +337,22 @@ Map every pain point to one of these 4 pillars:
 **D. THE 3 WHYS (Strict Qualification)**
 1. **Why Anything?** (Pain & Objective): Look for 'Bleeding Neck' issues. Why can't they stay on the current system?
    - *If found:* Extract specific pains (e.g., 'Crashes every Friday') and objectives (e.g., 'Scale to 1M users').
+   - *If partial:* You see a pain but no clear objective, or vice versa. Mark status as PARTIAL and note what's missing.
+   - *Did customer admitted this is a pain they need to solve?* If they said "We can live with this" or "This is just a nice-to-have", mark as MISSING and note what's missing.
    - *If missing:* Mark status as MISSING and note what's missing.
 2. **Why MongoDB?** (Differentiation): Why us? Why not Postgres or DynamoDB or any other database?
    - *If found:* Map features to pains (e.g., 'Relational Migrator reduces risk') and note differentiators.
+   - *If partial:* You see a reason why they want to change but no clear link to MongoDB's strengths. Mark status as PARTIAL and note what's missing.
+   - *Did customer admitted MongoDB is the best solution?* If they said "We are also considering Postgres/DynamoDB/DocumentDB or any other database", mark as PARTIAL and note what's missing. If they said "We don't see a difference between MongoDB and competitors", mark as MISSING and note what's missing.
    - *If missing:* Mark status as MISSING and note what's missing.
 3. **Why Now?** (Urgency): Is there a Compelling Event?
    - *If found:* Extract the Date and the Event (e.g., 'Audit on Nov 1st'). 'Q4' is not specific enough.
+   - *If partial:* You see a date but no compelling event, or an event but no date. Mark status as PARTIAL and note what's missing.
+   - *Did customer admit there is a real urgency?* If they said "We have a long runway" or "This is not urgent", mark as MISSING and note what's missing and note what's missing.
    - *If missing:* Mark status as MISSING. Note what's needed.
 
 **E. GAP ANALYSIS (The Coach)**
-Based *strictly* on what is MISSING in the 3 Whys above, generate 3-5 Discovery Questions for the Sales Rep.
+Based *strictly* on what is MISSING in the 3 Whys above, generate 5-7 Discovery Questions for the Sales Rep.
 - **Bad Question:** 'Why do you want to move now?'
 - **Good Question:** 'You mentioned the Oracle license expires in Q4—what is the specific date, and what is the financial penalty if we miss that window?'
 - **Good Question:** 'You mentioned latency is an issue—how is that specifically impacting your mobile users' cart abandonment rate?'
@@ -287,18 +362,7 @@ ${sanitizedContext}`
         })
       ]);
 
-      // Accumulate token usage
-      totalInputTokens += (technicalResult.usage?.inputTokens || 0) + 
-                         (commercialResult.usage?.inputTokens || 0) + 
-                         (strategyResult.usage?.inputTokens || 0);
-      totalOutputTokens += (technicalResult.usage?.outputTokens || 0) + 
-                          (commercialResult.usage?.outputTokens || 0) + 
-                          (strategyResult.usage?.outputTokens || 0);
-      totalTokens += (technicalResult.usage?.totalTokens || 0) + 
-                    (commercialResult.usage?.totalTokens || 0) + 
-                    (strategyResult.usage?.totalTokens || 0);
-
-      // Merge into DCS object
+      // Merge into DCS object and return with usage
       const dcsData: DCSData = {
         workloadId,
         workloadName: opp.workloadName,
@@ -307,8 +371,37 @@ ${sanitizedContext}`
         strategy: strategyResult.object
       };
 
-      dcsArray.push(dcsData);
       console.log(`✓ Completed: ${opp.workloadName}`);
+
+      return {
+        dcsData,
+        usage: {
+          inputTokens: (slicerResult.usage?.inputTokens || 0) + 
+                      (technicalResult.usage?.inputTokens || 0) + 
+                      (commercialResult.usage?.inputTokens || 0) + 
+                      (strategyResult.usage?.inputTokens || 0),
+          outputTokens: (slicerResult.usage?.outputTokens || 0) + 
+                       (technicalResult.usage?.outputTokens || 0) + 
+                       (commercialResult.usage?.outputTokens || 0) + 
+                       (strategyResult.usage?.outputTokens || 0),
+          totalTokens: (slicerResult.usage?.totalTokens || 0) + 
+                      (technicalResult.usage?.totalTokens || 0) + 
+                      (commercialResult.usage?.totalTokens || 0) + 
+                      (strategyResult.usage?.totalTokens || 0)
+        }
+      };
+    });
+
+    // Wait for all workloads to complete
+    const workloadResults = await Promise.all(workloadPromises);
+
+    // Accumulate all usage and extract DCS data
+    const dcsArray: DCSData[] = [];
+    for (const result of workloadResults) {
+      dcsArray.push(result.dcsData);
+      totalInputTokens += result.usage.inputTokens;
+      totalOutputTokens += result.usage.outputTokens;
+      totalTokens += result.usage.totalTokens;
     }
 
     console.log(`\n=== Generation Complete: ${dcsArray.length} workloads ===`);
@@ -320,6 +413,8 @@ ${sanitizedContext}`
     await Account.findByIdAndUpdate(accountId, {
       dcsData: dcsArray,
       status: 'COMPLETED',
+      progressStep: '',
+      progressDetails: {},
       usage: {
         promptTokens: totalInputTokens,
         completionTokens: totalOutputTokens,
@@ -327,18 +422,19 @@ ${sanitizedContext}`
         estimatedCost: estimatedCost
       }
     });
-
-    revalidatePath(`/account/${accountId}`);
     
-    return { success: true, dcsData: dcsArray };
+    console.log('=== DCS GENERATION COMPLETED ===');
   } catch (error) {
     console.error('Error generating DCS:', error);
     
     // Reset status on error
-    await Account.findByIdAndUpdate(accountId, { status: 'IDLE' });
-    revalidatePath(`/account/${accountId}`);
+    await Account.findByIdAndUpdate(accountId, { 
+      status: 'IDLE',
+      progressStep: '',
+      progressDetails: {}
+    });
     
-    return { success: false, error: 'Failed to generate DCS' };
+    throw error;
   }
 }
 
@@ -372,6 +468,8 @@ export async function getAccountDetails(accountId: string) {
       _id: account._id.toString(),
       name: account.name,
       status: account.status,
+      progressStep: account.progressStep || '',
+      progressDetails: account.progressDetails ? JSON.parse(JSON.stringify(account.progressDetails)) : {},
       dcsData: account.dcsData ? JSON.parse(JSON.stringify(account.dcsData)) : null,
       usage: account.usage ? {
         promptTokens: account.usage.promptTokens || 0,

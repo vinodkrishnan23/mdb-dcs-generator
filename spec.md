@@ -141,16 +141,23 @@ Run the **3-Agent Chain** (Technical, Commercial, Strategy) in parallel using th
 > - **Classic:** Complex, competitive.
 > - **Sprint:** Urgent, single decision maker.
 > - **Fast:** Decision made, execution focus."
-> **D. THE 3 WHYS (Strict Qualification)**
-> 1. **Why Anything?** (Pain & Objective): Look for 'Bleeding Neck' issues. Why can't they stay on the current system? 
->    - *If found:* Extract specific pains (e.g., 'Crashes every Friday').
->    - *If missing:* Mark as MISSING.
-> 2. **Why MongoDB?** (Differentiation): Why us? Why not Postgres or DynamoDB or any otehr database?
->    - *If found:* Map features to pains (e.g., 'Relational Migrator reduces risk').
->    - *If missing:* Mark as MISSING.
+
+> **D. THE 3 WHYS (Strict Qualification)** 
+> 1. **Why Anything?** (Pain & Objective): Look for 'Bleeding Neck' issues. Why can't they stay on the current system?
+>     - *If found:* Extract specific pains (e.g., 'Crashes every Friday') and objectives (e.g., 'Scale to 1M users').
+>     - *If partial:* You see a pain but no clear objective, or vice versa. Mark status as PARTIAL and note what's missing.
+>     - *Did customer admitted this is a pain they need to solve?* If they said "We can live with this" or "This is just a nice-to-have", mark as MISSING and note what's missing.
+>     - *If missing:* Mark status as MISSING and note what's missing.
+> 2. **Why MongoDB?** (Differentiation): Why us? Why not Postgres or DynamoDB or any other database?
+>     - *If found:* Map features to pains (e.g., 'Relational Migrator reduces risk') and note differentiators.
+>     - *If partial:* You see a reason why they want to change but no clear link to MongoDB's strengths. Mark status as PARTIAL and note what's missing.
+>     - *Did customer admitted MongoDB is the best solution?* If they said "We are also considering Postgres/DynamoDB/DocumentDB or any other database", mark as PARTIAL and note what's missing. If they said "We don't see a difference between MongoDB and competitors", mark as MISSING and note what's missing.
+>     - *If missing:* Mark status as MISSING and note what's missing.
 > 3. **Why Now?** (Urgency): Is there a Compelling Event?
->    - *If found:* Extract the Date and the Event.
->    - *If missing:* Mark as MISSING. 'Q4' is not a compelling event; 'Audit on Nov 1st' is.
+>     - *If found:* Extract the Date and the Event (e.g., 'Audit on Nov 1st'). 'Q4' is not specific enough.
+>     - *If partial:* You see a date but no compelling event, or an event but no date. Mark status as PARTIAL and note what's missing.
+>     - *Did customer admit there is a real urgency?* If they said "We have a long runway" or "This is not urgent", mark as MISSING and note what's missing and note what's missing.
+>     - *If missing:* Mark status as MISSING. Note what's needed.
 >
 > **E. GAP ANALYSIS (The Coach)**
 > based *strictly* on what is MISSING in the 3 Whys above, generate 3-5 Discovery Questions for the Sales Rep.

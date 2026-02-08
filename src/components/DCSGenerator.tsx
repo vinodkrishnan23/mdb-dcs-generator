@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { generateDCS } from '@/app/actions';
 import { RefreshCw, Zap } from 'lucide-react';
 
@@ -12,21 +13,24 @@ interface DCSGeneratorProps {
 
 export function DCSGenerator({ accountId, status, hasTranscripts }: DCSGeneratorProps) {
   const [isGenerating, setIsGenerating] = useState(false);
+  const router = useRouter();
 
   const handleGenerate = async () => {
-    if (!hasTranscripts || status === 'GENERATING') return;
+    if (!hasTranscripts || status === 'PROCESSING') return;
     
     setIsGenerating(true);
     const result = await generateDCS(accountId);
     
     if (!result.success) {
       alert('Failed to generate DCS: ' + result.error);
+      setIsGenerating(false);
+    } else {
+      // Refresh the page to show updated status and start polling
+      router.refresh();
     }
-    
-    setIsGenerating(false);
   };
 
-  const buttonDisabled = !hasTranscripts || status === 'GENERATING' || isGenerating;
+  const buttonDisabled = !hasTranscripts || status === 'PROCESSING' || isGenerating;
 
   return (
     <div className="bg-white rounded-lg shadow p-6">
@@ -48,7 +52,7 @@ export function DCSGenerator({ accountId, status, hasTranscripts }: DCSGenerator
               : 'bg-green-600 text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500'
           }`}
         >
-          {status === 'GENERATING' || isGenerating ? (
+          {status === 'PROCESSING' || isGenerating ? (
             <>
               <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
               Generating DCS...
