@@ -14,18 +14,24 @@ const googleAI = createGoogleGenerativeAI({
   apiKey: process.env.GOOGLE_VERTEX_AI_API_KEY!,
 });
 
-export async function createAccount(name: string) {
+export async function createAccount(name: string, userEmail: string) {
   try {
+    console.log('createAccount called with:', { name, userEmail });
+    
     await dbConnect();
     
     const account = new Account({
       name,
+      userEmail,
       transcriptIds: [],
       dcsData: null,
       status: 'IDLE'
     });
 
+    console.log('Account object before save:', JSON.stringify(account, null, 2));
     await account.save();
+    console.log('Account saved successfully with ID:', account._id.toString());
+    
     revalidatePath('/');
     
     return { success: true, accountId: account._id.toString() };
@@ -35,14 +41,15 @@ export async function createAccount(name: string) {
   }
 }
 
-export async function uploadTranscript(accountId: string, fileContent: string, fileName: string) {
+export async function uploadTranscript(accountId: string, fileContent: string, fileName: string, userEmail: string) {
   try {
     await dbConnect();
     
     const transcript = new Transcript({
       accountId,
       filename: fileName,
-      fullText: fileContent
+      fullText: fileContent,
+      userEmail
     });
 
     await transcript.save();
@@ -289,6 +296,7 @@ ${sanitizedContext}`
           prompt: `You are a Sales Manager. Extract ONLY: Stakeholders (Buyer vs Champion), Partner ecosystem (Cloud/SI), and Timelines (Compelling Events). Ignore technical logs.
 
 **A. STAKEHOLDERS (The "Political Map")**
+- Ignore MongoDB attendees (we want to know about the customer's internal politics, not our own team).
 - Identify **Who reports to whom?** (e.g., "Engineering Manager reports to CTO").
 - Identify **Psychographics:** What gives them confidence? What are their "scars" (past failures)?
 - **Sentiment Analysis:** For non-MongoDB attendees, capture their sentiment and attitude (e.g., "Skeptical about migration", "Enthusiastic about new features", "Concerned about costs", "Supportive but needs proof").
@@ -438,15 +446,18 @@ ${sanitizedContext}`
   }
 }
 
-export async function getAccounts() {
+export async function getAccounts(userEmail: string) {
   try {
     await dbConnect();
-    const accounts = await Account.find({}).sort({ createdAt: -1 });
+    // Find accounts that match the userEmail only
+    const accounts = await Account.find({
+      userEmail: userEmail
+    }).sort({ createdAt: -1 });
     return accounts.map(account => ({
       _id: account._id.toString(),
       name: account.name,
       status: account.status,
-      transcriptCount: account.transcriptIds.length,
+      transcriptCount: account.transcriptIds?.length || 0,
       createdAt: account.createdAt
     }));
   } catch (error) {

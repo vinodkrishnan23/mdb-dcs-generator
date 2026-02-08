@@ -4,7 +4,11 @@ import { useState } from 'react';
 import { createAccount } from '@/app/actions';
 import { Plus } from 'lucide-react';
 
-export function CreateAccountForm() {
+interface CreateAccountFormProps {
+  userEmail: string;
+}
+
+export function CreateAccountForm({ userEmail }: CreateAccountFormProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [name, setName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -14,7 +18,7 @@ export function CreateAccountForm() {
     if (!name.trim()) return;
 
     setIsLoading(true);
-    const result = await createAccount(name.trim());
+    const result = await createAccount(name.trim(), userEmail);
     
     if (result.success) {
       setName('');
@@ -47,7 +51,7 @@ export function CreateAccountForm() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Account name"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 mb-4"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 mb-4"
                   disabled={isLoading}
                 />
                 <div className="flex gap-3">

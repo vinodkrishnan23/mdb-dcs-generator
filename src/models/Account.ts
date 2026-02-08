@@ -2,6 +2,7 @@ import mongoose, { Schema, Document, Model } from 'mongoose';
 
 export interface IAccount extends Document {
   name: string;
+  userEmail: string;
   industryContext?: string;
   transcriptIds: mongoose.Types.ObjectId[];
   dcsData: any[]; // Array of DCS objects
@@ -23,6 +24,10 @@ export interface IAccount extends Document {
 
 const AccountSchema: Schema = new Schema({
   name: {
+    type: String,
+    required: true,
+  },
+  userEmail: {
     type: String,
     required: true,
   },

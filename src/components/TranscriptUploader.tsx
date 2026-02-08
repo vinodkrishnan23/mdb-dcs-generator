@@ -6,9 +6,10 @@ import { Upload, File } from 'lucide-react';
 
 interface TranscriptUploaderProps {
   accountId: string;
+  userEmail: string;
 }
 
-export function TranscriptUploader({ accountId }: TranscriptUploaderProps) {
+export function TranscriptUploader({ accountId, userEmail }: TranscriptUploaderProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
 
@@ -40,25 +41,31 @@ export function TranscriptUploader({ accountId }: TranscriptUploaderProps) {
   };
 
   const handleFiles = async (files: FileList) => {
-    const file = files[0];
-    
-    if (!file.name.endsWith('.txt')) {
-      alert('Please upload a .txt file');
-      return;
-    }
-
     setIsUploading(true);
     
     try {
-      const text = await file.text();
-      const result = await uploadTranscript(accountId, text, file.name);
+      const uploadPromises = Array.from(files).map(async (file) => {
+        if (!file.name.endsWith('.txt')) {
+          console.warn(`Skipping ${file.name} - not a .txt file`);
+          return { success: false, fileName: file.name, error: 'Not a .txt file' };
+        }
+
+        const text = await file.text();
+        const result = await uploadTranscript(accountId, text, file.name, userEmail);
+        return { ...result, fileName: file.name };
+      });
+
+      const results = await Promise.all(uploadPromises);
       
-      if (!result.success) {
-        alert('Failed to upload transcript');
+      const failed = results.filter(r => !r.success);
+      if (failed.length > 0) {
+        alert(`Failed to upload ${failed.length} file(s): ${failed.map(f => f.fileName).join(', ')}`);
+      } else {
+        alert(`Successfully uploaded ${results.length} file(s)`);
       }
     } catch (error) {
-      console.error('Error uploading file:', error);
-      alert('Error uploading file');
+      console.error('Error uploading files:', error);
+      alert('Error uploading files');
     }
     
     setIsUploading(false);
@@ -79,6 +86,7 @@ export function TranscriptUploader({ accountId }: TranscriptUploaderProps) {
       <input
         type="file"
         accept=".txt"
+        multiple
         onChange={handleChange}
         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
         disabled={isUploading}
@@ -95,10 +103,10 @@ export function TranscriptUploader({ accountId }: TranscriptUploaderProps) {
         
         <div>
           <p className="text-lg font-medium text-green-800">
-            {isUploading ? 'Uploading...' : 'Upload transcript file'}
+            {isUploading ? 'Uploading...' : 'Upload transcript files'}
           </p>
           <p className="text-green-600">
-            Drag and drop a .txt file here, or click to select
+            Drag and drop .txt files here, or click to select multiple files
           </p>
         </div>
       </div>

@@ -4,6 +4,7 @@ export interface ITranscript extends Document {
   accountId: mongoose.Types.ObjectId;
   filename: string;
   fullText: string;
+  userEmail: string;
   createdAt: Date;
 }
 
@@ -18,6 +19,10 @@ const TranscriptSchema: Schema = new Schema({
     required: true,
   },
   fullText: {
+    type: String,
+    required: true,
+  },
+  userEmail: {
     type: String,
     required: true,
   },
