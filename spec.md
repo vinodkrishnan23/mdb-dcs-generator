@@ -1,4 +1,4 @@
-# Project Specification: MongoDB DCS Generator
+# Project Specification: TigerLens
 
 **Role:** You are a Principal Full Stack Engineer.
 **Goal:** Build a Next.js 15 application that generates "Discovery Capture Sheets" (DCS) from sales transcripts using a Multi-Agent AI architecture.
@@ -8,7 +8,7 @@
 - **Database:** MongoDB Atlas (via Mongoose). **Store raw transcript text directly in MongoDB (No S3).**
 - **AI:** Vercel AI SDK (`ai` package).
   - Provider: `@ai-sdk/google`.
-  - Model String: `google('models/gemini-3-pro-preview')` (Supports 2M context).
+  - Model String: `google('models/gemini-2.5-pro')` (Supports 2M context).
 - **Validation:** Zod (Strict output schemas).
 - **Styling:** Tailwind CSS + Lucide React.
 

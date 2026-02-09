@@ -21,7 +21,7 @@ export default async function Home() {
       <header className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
           <h1 className="text-2xl font-bold text-green-800">
-            MongoDB DCS Generator
+            TigerLens
           </h1>
           <UserMenu user={user} />
         </div>

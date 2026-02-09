@@ -1,4 +1,4 @@
-import { DCSData } from '@/lib/schema';
+import { DCSData } from '@/lib/schemas';
 import { Clock, CheckCircle, RefreshCw } from 'lucide-react';
 
 interface DCSDisplayProps {
@@ -22,6 +22,37 @@ export function DCSDisplay({ dcsData, status, accountName }: DCSDisplayProps) {
       <div className="text-center py-8">
         <Clock className="w-8 h-8 text-green-500 mx-auto mb-4" />
         <p className="text-green-700">Upload transcripts and generate DCS to see results here</p>
+      </div>
+    );
+  }
+
+  console.log('DCSDisplay received dcsData:', JSON.stringify(dcsData, null, 2));
+
+  const { technical, commercial, strategy } = dcsData;
+
+  // Safety check for data structure
+  if (!technical || !commercial || !strategy) {
+    console.error('DCS data structure check failed:', { 
+      hasTechnical: !!technical, 
+      hasCommercial: !!commercial, 
+      hasStrategy: !!strategy,
+      dcsDataKeys: Object.keys(dcsData)
+    });
+    return (
+      <div className="text-center py-8">
+        <Clock className="w-8 h-8 text-gray-400 mx-auto mb-4" />
+        <p className="text-gray-600">DCS data is incomplete. Please regenerate.</p>
+        <details className="mt-4 text-left max-w-md mx-auto">
+          <summary className="cursor-pointer text-sm text-gray-500">Debug info</summary>
+          <pre className="text-xs mt-2 p-2 bg-gray-100 rounded overflow-auto">
+            {JSON.stringify({ 
+              hasTechnical: !!technical, 
+              hasCommercial: !!commercial, 
+              hasStrategy: !!strategy,
+              keys: Object.keys(dcsData)
+            }, null, 2)}
+          </pre>
+        </details>
       </div>
     );
   }
@@ -51,7 +82,7 @@ export function DCSDisplay({ dcsData, status, accountName }: DCSDisplayProps) {
                 Workload Name (app/project/initiative/service):
               </td>
               <td className="border border-gray-400 px-3 py-2 text-green-700">
-                {dcsData.accountInfo.workloadName}
+                {dcsData.workloadName}
               </td>
             </tr>
             <tr>
@@ -59,7 +90,7 @@ export function DCSDisplay({ dcsData, status, accountName }: DCSDisplayProps) {
                 Sales Motion:
               </td>
               <td className="border border-gray-400 px-3 py-2 text-green-700">
-                {dcsData.accountInfo.salesMotion}
+                {strategy.salesMotion}
               </td>
             </tr>
             <tr>
@@ -67,7 +98,7 @@ export function DCSDisplay({ dcsData, status, accountName }: DCSDisplayProps) {
                 Name & Role of person with whom we're meeting:
               </td>
               <td className="border border-gray-400 px-3 py-2 text-green-700">
-                {dcsData.accountInfo.keyStakeholders.map(stakeholder => 
+                {commercial.stakeholders.map(stakeholder => 
                   `${stakeholder.name} (${stakeholder.role})`
                 ).join(', ')}
               </td>
@@ -77,7 +108,7 @@ export function DCSDisplay({ dcsData, status, accountName }: DCSDisplayProps) {
                 Partner(s) involved in Workload:
               </td>
               <td className="border border-gray-400 px-3 py-2 text-green-700">
-                {dcsData.accountInfo.partnersInvolved.join(', ')}
+                {commercial.partners.cloudProvider} | {commercial.partners.systemIntegrators.join(', ')}
               </td>
             </tr>
             <tr>
@@ -99,7 +130,7 @@ export function DCSDisplay({ dcsData, status, accountName }: DCSDisplayProps) {
                 Value Driver(s):
               </td>
               <td className="border border-gray-400 px-3 py-2 text-green-700">
-                {dcsData.valueFramework.valueDrivers.join(', ')}
+                {strategy.valueDrivers.map(vd => `${vd.category}: ${vd.justification}`).join(' | ')}
               </td>
             </tr>
             <tr>
@@ -107,8 +138,8 @@ export function DCSDisplay({ dcsData, status, accountName }: DCSDisplayProps) {
                 Timeline/Deadline/Milestone Date(s):
               </td>
               <td className="border border-gray-400 px-3 py-2 text-green-700">
-                {dcsData.logistics.timeline.goLiveDate && `Go Live: ${dcsData.logistics.timeline.goLiveDate}`}
-                {dcsData.logistics.timeline.compellingEvent && ` | ${dcsData.logistics.timeline.compellingEvent}`}
+                {commercial.timeline.targetGoLiveDate}
+                {commercial.timeline.compellingEvent && ` | ${commercial.timeline.compellingEvent}`}
               </td>
             </tr>
             <tr>
@@ -116,7 +147,7 @@ export function DCSDisplay({ dcsData, status, accountName }: DCSDisplayProps) {
                 Tiger Sales Route:
               </td>
               <td className="border border-gray-400 px-3 py-2 text-green-700">
-                {dcsData.logistics.tigerSalesRoute}
+                {strategy.tigerSalesRoute}
               </td>
             </tr>
           </tbody>
@@ -136,13 +167,26 @@ export function DCSDisplay({ dcsData, status, accountName }: DCSDisplayProps) {
           </thead>
           <tbody>
             <tr>
-              <td className="border border-gray-400 px-3 py-3 text-green-700 align-top min-h-[100px]">
-                <div className="font-medium mb-2">Current State: {dcsData.valueFramework.currentState.currentStateDescription}</div>
+              <td className="border border-gray-400 px-3 py-3 text-green-700 align-top min-h-25">
+                <div className="font-medium mb-2">Current State Description:</div>
+                <div>{technical.currentState.currentStateDescription}</div>
+                <div className="mt-2">
+                  <strong>Architecture:</strong> {technical.currentState.architecture.topology} | 
+                  {technical.currentState.architecture.infrastructure}
+                </div>
+                <div className="mt-2">
+                  <strong>Metrics:</strong> Data: {technical.currentState.metrics.dataSize} | 
+                  Latency: {technical.currentState.metrics.latency} | 
+                  Throughput: {technical.currentState.metrics.throughput}
+                </div>
               </td>
-              <td className="border border-gray-400 px-3 py-3 text-green-700 align-top min-h-[100px]">
-                <ul className="list-disc list-inside space-y-1">
-                  {dcsData.valueFramework.currentState.negativeConsequences.map((consequence, index) => (
-                    <li key={index}>{consequence}</li>
+              <td className="border border-gray-400 px-3 py-3 text-green-700 align-top min-h-25">
+                <ul className="list-disc list-inside space-y-2">
+                  {technical.currentState.painPoints.map((pain, index) => (
+                    <li key={index}>
+                      <strong>{pain.currentStateDescription}:</strong> {pain.technicalRootCause} 
+                      ({pain.businessImpact})
+                    </li>
                   ))}
                 </ul>
               </td>
@@ -164,16 +208,14 @@ export function DCSDisplay({ dcsData, status, accountName }: DCSDisplayProps) {
           </thead>
           <tbody>
             <tr>
-              <td className="border border-gray-400 px-3 py-3 text-green-700 align-top min-h-[100px]">
+              <td className="border border-gray-400 px-3 py-3 text-green-700 align-top min-h-25">
                 <div className="font-medium mb-2">After Scenario ("How would CEO brag about it?")</div>
-                <div>Future State: {dcsData.valueFramework.futureState.futureStateDescription}</div>
+                <div>{technical.futureState.futureStateDescription}</div>
+                <div className="mt-2"><strong>Proposed Architecture:</strong> {technical.futureState.proposedArchitecture}</div>
+                <div className="mt-2">{technical.futureState.proposedSolution}</div>
               </td>
-              <td className="border border-gray-400 px-3 py-3 text-green-700 align-top min-h-[100px]">
-                <ul className="list-disc list-inside space-y-1">
-                  {dcsData.valueFramework.futureState.positiveBusinessOutcomes.map((outcome, index) => (
-                    <li key={index}>{outcome}</li>
-                  ))}
-                </ul>
+              <td className="border border-gray-400 px-3 py-3 text-green-700 align-top min-h-25">
+                <div>{technical.futureState.positiveBusinessOutcome}</div>
               </td>
             </tr>
           </tbody>
@@ -204,16 +246,16 @@ export function DCSDisplay({ dcsData, status, accountName }: DCSDisplayProps) {
           </thead>
           <tbody>
             <tr>
-              <td className="border border-gray-400 px-3 py-3 text-green-700 align-top min-h-[100px]">
+              <td className="border border-gray-400 px-3 py-3 text-green-700 align-top min-h-25">
                 <ul className="list-disc list-inside space-y-1">
-                  {dcsData.logistics.requiredCapabilities.map((capability, index) => (
+                  {technical.futureState.requiredCapabilities.map((capability, index) => (
                     <li key={index}>{capability}</li>
                   ))}
                 </ul>
               </td>
-              <td className="border border-gray-400 px-3 py-3 text-green-700 align-top min-h-[100px]">
+              <td className="border border-gray-400 px-3 py-3 text-green-700 align-top min-h-25">
                 <ul className="list-disc list-inside space-y-1">
-                  {dcsData.logistics.successMetrics.map((metric, index) => (
+                  {technical.futureState.successMetrics.map((metric, index) => (
                     <li key={index}>{metric}</li>
                   ))}
                 </ul>

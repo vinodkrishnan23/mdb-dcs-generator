@@ -138,7 +138,7 @@ async function processDCSGeneration(accountId: string) {
     
     // PASS 1: Router Agent - Identify distinct workloads
     const routerResult = await generateObject({
-      model: googleAI('gemini-3-pro-preview'),
+      model: googleAI('gemini-2.5-pro'),
       schema: routerSchema,
       experimental_telemetry: { isEnabled: true },
       prompt: `You are a Sales Discovery Analyst. Your job is to identify DISTINCT sales opportunities (workloads/projects) discussed in these transcripts.
@@ -222,7 +222,7 @@ ${combinedText}`
       // ---------------------------------------------
       console.log(`  -> Running Slicer Agent for: ${opp.workloadName}`);
       const slicerResult = await generateObject({
-        model: googleAI('gemini-3-pro-preview'),
+        model: googleAI('gemini-2.5-pro'),
         schema: z.object({
           sanitizedContext: z.string().describe("The rewritten transcript containing ONLY information relevant to the specified workload.")
         }),
@@ -265,7 +265,7 @@ ${combinedText}`
       const [technicalResult, commercialResult, strategyResult] = await Promise.all([
         // Agent 1: Technical Architect
         generateObject({
-          model: googleAI('gemini-3-pro-preview'),
+          model: googleAI('gemini-2.5-pro'),
           schema: technicalSchema,
           experimental_telemetry: { isEnabled: true },
           prompt: `You are a Principal Architect. Extract ONLY technical evidence: specific instance types (e.g. m5.large), database versions, topology (Replica Set vs Sharded), and metrics (latency, throughput). Ignore sales politics.
@@ -290,7 +290,7 @@ ${sanitizedContext}`
 
         // Agent 2: Commercial Manager
         generateObject({
-          model: googleAI('gemini-3-pro-preview'),
+          model: googleAI('gemini-2.5-pro'),
           schema: commercialSchema,
           experimental_telemetry: { isEnabled: true },
           prompt: `You are a Sales Manager. Extract ONLY: Stakeholders (Buyer vs Champion), Partner ecosystem (Cloud/SI), and Timelines (Compelling Events). Ignore technical logs.
@@ -319,7 +319,7 @@ ${sanitizedContext}`
 
         // Agent 3: Deal Strategist
         generateObject({
-          model: googleAI('gemini-3-pro-preview'),
+          model: googleAI('gemini-2.5-pro'),
           schema: strategySchema,
           experimental_telemetry: { isEnabled: true },
           prompt: `You are a Deal Strategist. Determine the Sales Motion (Migrate/Replace/Launch/Select) based on strict definitions. Map pain points to Value Drivers (Compete, Save, Risk, Velocity).

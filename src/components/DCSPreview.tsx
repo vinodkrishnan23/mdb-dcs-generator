@@ -1,16 +1,16 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { DCSData } from '@/lib/schema';
-import { DCSDisplay } from './DCSDisplay';
-import { Clock, AlertCircle, Loader2 } from 'lucide-react';
+import { DCSData } from '@/lib/schemas';
+import { AgentFlowDiagram } from './AgentFlowDiagram';
+import { Clock, AlertCircle, FileText } from 'lucide-react';
 
 interface DCSPreviewProps {
   accountId: string;
   initialStatus: string;
   initialProgressStep?: string;
-  initialProgressDetails?: string;
-  initialDcsData?: DCSData | null;
+  initialProgressDetails?: any;
+  initialDcsData?: DCSData[] | DCSData | null;
 }
 
 export function DCSPreview({
@@ -23,35 +23,38 @@ export function DCSPreview({
   const [status, setStatus] = useState(initialStatus);
   const [progressStep, setProgressStep] = useState(initialProgressStep);
   const [progressDetails, setProgressDetails] = useState(initialProgressDetails);
-  const [dcsData, setDcsData] = useState<DCSData | null>(initialDcsData || null);
+  const [dcsDataArray, setDcsDataArray] = useState<DCSData[]>(() => {
+    if (!initialDcsData) return [];
+    if (Array.isArray(initialDcsData)) return initialDcsData;
+    return [initialDcsData];
+  });
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Poll for updates when processing
-    if (status === 'PROCESSING') {
-      const interval = setInterval(async () => {
-        try {
-          const response = await fetch(`/api/accounts/${accountId}/status`);
-          if (response.ok) {
-            const data = await response.json();
-            setStatus(data.status);
-            setProgressStep(data.progressStep);
-            setProgressDetails(data.progressDetails);
-            
-            if (data.status === 'COMPLETED' && data.dcsData) {
-              setDcsData(data.dcsData);
-            } else if (data.status === 'FAILED') {
-              setError(data.error || 'DCS generation failed');
-            }
+    // Poll for updates - start immediately and continue while processing
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/accounts/${accountId}/status`);
+        if (response.ok) {
+          const data = await response.json();
+          setStatus(data.status);
+          setProgressStep(data.progressStep);
+          setProgressDetails(data.progressDetails);
+          
+          if (data.status === 'COMPLETED' && data.dcsData) {
+            const dataArray = Array.isArray(data.dcsData) ? data.dcsData : [data.dcsData];
+            setDcsDataArray(dataArray);
+          } else if (data.status === 'FAILED') {
+            setError(data.error || 'DCS generation failed');
           }
-        } catch (err) {
-          console.error('Failed to fetch status:', err);
         }
-      }, 2000); // Poll every 2 seconds
+      } catch (err) {
+        console.error('Failed to fetch status:', err);
+      }
+    }, 2000); // Poll every 2 seconds
 
-      return () => clearInterval(interval);
-    }
-  }, [status, accountId]);
+    return () => clearInterval(interval);
+  }, [accountId]);
 
   if (error) {
     return (
@@ -65,19 +68,31 @@ export function DCSPreview({
 
   if (status === 'PROCESSING') {
     return (
-      <div className="text-center py-8">
-        <Loader2 className="w-8 h-8 text-green-600 animate-spin mx-auto mb-4" />
-        <p className="text-green-700 font-medium mb-2">
-          {progressStep || 'Processing...'}
-        </p>
-        {progressDetails && (
-          <p className="text-sm text-gray-600">{progressDetails}</p>
-        )}
+      <div className="py-8">
+        <AgentFlowDiagram currentStep={progressStep} />
       </div>
     );
   }
 
-  if (!dcsData) {
+  if (status === 'COMPLETED' && dcsDataArray.length > 0) {
+    return (
+      <div className="text-center py-8">
+        <FileText className="w-16 h-16 text-green-600 mx-auto mb-4" />
+        <p className="text-green-700 font-medium mb-4">
+          DCS Generation Complete!
+        </p>
+        <a
+          href={`/dcs/${accountId}`}
+          className="inline-flex items-center px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors font-medium"
+        >
+          <FileText className="w-5 h-5 mr-2" />
+          View Full DCS
+        </a>
+      </div>
+    );
+  }
+
+  if (dcsDataArray.length === 0) {
     return (
       <div className="text-center py-8">
         <Clock className="w-8 h-8 text-gray-400 mx-auto mb-4" />
@@ -86,13 +101,20 @@ export function DCSPreview({
     );
   }
 
+  // If we have data but status is not COMPLETED, show the button anyway
   return (
-    <div className="overflow-auto max-h-200">
-      <DCSDisplay 
-        dcsData={dcsData} 
-        status={status}
-        accountName={dcsData.accountInfo?.workloadName || 'N/A'}
-      />
+    <div className="text-center py-8">
+      <FileText className="w-16 h-16 text-green-600 mx-auto mb-4" />
+      <p className="text-green-700 font-medium mb-4">
+        DCS Available
+      </p>
+      <a
+        href={`/dcs/${accountId}`}
+        className="inline-flex items-center px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors font-medium"
+      >
+        <FileText className="w-5 h-5 mr-2" />
+        View Full DCS
+      </a>
     </div>
   );
 }
