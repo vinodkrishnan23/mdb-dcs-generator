@@ -36,6 +36,26 @@ export const technicalSchema = z.object({
     positiveBusinessOutcome: z.string(),
     requiredCapabilities: z.array(z.string()).describe("Shopping List (e.g. Time Series, Vector Search)"),
     successMetrics: z.array(z.string()).describe("How they measure success (e.g. latency < 10ms)")
+  }),
+  useCaseSummary: z.object({
+    applicationPurpose: z.string().describe("What the application does and who the end users are"),
+    businessProblem: z.string().describe("The business problem this application solves"),
+    keyWorkflows: z.array(z.string()).describe("Key workflows and user interactions"),
+    dataPatterns: z.string().describe("Read-heavy, write-heavy, real-time requirements, etc."),
+    scaleCharacteristics: z.string().describe("Scale and performance characteristics")
+  }),
+  dataFlowDiagram: z.object({
+    components: z.array(z.object({
+      name: z.string().describe("Component name"),
+      type: z.enum(['Client', 'Service', 'Database', 'Integration', 'Other']).describe("Component type"),
+      description: z.string().describe("Brief description of the component's role")
+    })).describe("All system components in the data flow"),
+    flows: z.array(z.object({
+      from: z.string().describe("Source component"),
+      to: z.string().describe("Target component"),
+      description: z.string().describe("What data flows and how"),
+      metrics: z.string().optional().describe("Volume, velocity, latency for this flow")
+    })).describe("Data flows between components")
   })
 });
 
@@ -100,7 +120,16 @@ export const strategySchema = z.object({
   // Contextual Discovery Questions (Gap Analysis)
   gapAnalysis: z.object({
     discoveryQuestions: z.array(z.string()).describe("3-5 hyper-specific, open-ended questions the Rep should ask next time to fill the missing 'Why' information.")
-  })
+  }),
+
+  // Next Steps
+  nextSteps: z.array(z.object({
+    action: z.string().describe("Specific action to take"),
+    category: z.enum(['Technical', 'Commercial', 'Enablement', 'Qualification']).describe("Type of action"),
+    owner: z.string().describe("Who should drive this (Sales Rep, SE, AE, Partner, etc.)"),
+    timeline: z.string().describe("Suggested timeframe (e.g. 'Week 1', 'Before PoC', 'Q1 2026')"),
+    priority: z.enum(['High', 'Medium', 'Low']).describe("Urgency of this action")
+  })).describe("3-7 concrete next steps for the sales team")
 });
 
 // Combined DCS type

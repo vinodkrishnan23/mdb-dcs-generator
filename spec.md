@@ -84,7 +84,7 @@ For each opportunity, run a specialized AI call to generate a **Sanitized Contex
 Run the **3-Agent Chain** (Technical, Commercial, Strategy) in parallel using the `sanitizedContext` (NOT the full text).
 
 #### Agent 1: The Technical Architect
-**Focus:** Hardware, Topology, Latency, Version numbers.
+**Focus:** Hardware, Topology, Latency, Version numbers, Use Cases, Data Flow.
 **System Prompt:**
 > "You are a Principal Architect. Extract ONLY technical evidence: specific instance types (e.g. m5.large), database versions, topology (Replica Set vs Sharded), and metrics (latency, throughput). Ignore sales politics.
 >
@@ -99,7 +99,28 @@ Run the **3-Agent Chain** (Technical, Commercial, Strategy) in parallel using th
 > - **Future State:**
 >   - **Proposed Solution:** detailed explanation of the proposed MongoDB Atlas solution, implementation, migration strategy.
 >   - **Specific Features:** Time Series, Search, Vector, Online Archive.
->   - **Outcomes:** Measurable success metrics."
+>   - **Outcomes:** Measurable success metrics.
+>
+> **C. USE CASE SUMMARY**
+> - **Detailed Use Case:** Provide a comprehensive 2-3 paragraph summary describing:
+>   - What the application does and who the end users are
+>   - The business problem it solves
+>   - Key workflows and user interactions
+>   - Data patterns (read-heavy, write-heavy, real-time requirements)
+>   - Scale and performance characteristics
+>
+> **D. DATA FLOW DIAGRAM**
+> - **Component Description:** Extract a list of all system components in the data flow:
+>   - Client/User Interface layers (Web, Mobile, API consumers)
+>   - Application/Service layers (Microservices, APIs, Backend services)
+>   - Data layer (Current database, MongoDB Atlas target, caching layers)
+>   - External integrations (Third-party APIs, Cloud services, Message queues)
+> - **Flow Description:** Describe the data flow between components:
+>   - How data enters the system (user actions, APIs, events)
+>   - Processing and transformation steps
+>   - Storage and retrieval patterns
+>   - Output/consumption of data
+> - **Volume & Velocity:** Key metrics for each flow (requests per second, data volume, latency requirements)"
 
 #### Agent 2: The Commercial Manager
 **Focus:** Stakeholders, Timeline, Partners.
@@ -124,7 +145,7 @@ Run the **3-Agent Chain** (Technical, Commercial, Strategy) in parallel using th
 > - **All Dates Discussed:** Capture ALL dates mentioned (e.g., 'March 15 - PoC deadline') with context."
 
 #### Agent 3: The Deal Strategist
-**Focus:** Logic mapping (Sales Motion, Value Drivers).
+**Focus:** Logic mapping (Sales Motion, Value Drivers), Next Steps.
 **System Prompt:**
 > "You are a Deal Strategist. Determine the Sales Motion based on strict definitions. Map pain points to Value Drivers.
 >
@@ -164,6 +185,15 @@ Run the **3-Agent Chain** (Technical, Commercial, Strategy) in parallel using th
 > - **Bad Question:** 'Why do you want to move now?'
 > - **Good Question:** 'You mentioned the Oracle license expires in Q4—what is the specific date, and what is the financial penalty if we miss that window?'
 > - **Good Question:** 'You mentioned latency is an issue—how is that specifically impacting your mobile users' cart abandonment rate?'"
+>
+> **F. NEXT STEPS**
+> Based on the deal stage, timeline, and gaps identified, provide 3-7 concrete, actionable next steps for the sales team:
+> - **Technical Actions:** PoC requirements, architecture review sessions, migration planning workshops
+> - **Commercial Actions:** Executive briefings, pricing discussions, contract negotiations
+> - **Enablement:** Documentation needed, training sessions, customer success planning
+> - **Qualification:** Information gathering tasks based on gaps in the 3 Whys
+> - **Timeline:** Associate each action with a suggested timeframe (e.g., 'Week 1', 'Before PoC', 'Q1 2026')
+> - **Owner:** Suggest who should drive each action (Sales Rep, SE, Account Executive, Partner)"
 
 **Aggregation:**
 - Wait for all Promises to resolve.
@@ -213,6 +243,26 @@ export const technicalSchema = z.object({
     positiveBusinessOutcome: z.string(),
     requiredCapabilities: z.array(z.string()).describe("Shopping List (e.g. Time Series)"),
     successMetrics: z.array(z.string()).describe("Success measures (e.g. latency < 10ms)")
+  }),
+  useCaseSummary: z.object({
+    applicationPurpose: z.string().describe("What the application does and who the end users are"),
+    businessProblem: z.string().describe("The business problem this application solves"),
+    keyWorkflows: z.array(z.string()).describe("Key workflows and user interactions"),
+    dataPatterns: z.string().describe("Read-heavy, write-heavy, real-time requirements, etc."),
+    scaleCharacteristics: z.string().describe("Scale and performance characteristics")
+  }),
+  dataFlowDiagram: z.object({
+    components: z.array(z.object({
+      name: z.string().describe("Component name"),
+      type: z.enum(['Client', 'Service', 'Database', 'Integration', 'Other']).describe("Component type"),
+      description: z.string().describe("Brief description of the component's role")
+    })).describe("All system components in the data flow"),
+    flows: z.array(z.object({
+      from: z.string().describe("Source component"),
+      to: z.string().describe("Target component"),
+      description: z.string().describe("What data flows and how"),
+      metrics: z.string().optional().describe("Volume, velocity, latency for this flow")
+    })).describe("Data flows between components")
   })
 });
 
@@ -276,7 +326,16 @@ export const strategySchema = z.object({
   // Contextual Discovery Questions (Gap Analysis)
   gapAnalysis: z.object({
     discoveryQuestions: z.array(z.string()).describe("3-5 hyper-specific, open-ended questions the Rep should ask next time to fill the missing 'Why' information.")
-  })
+  }),
+  
+  // Next Steps
+  nextSteps: z.array(z.object({
+    action: z.string().describe("Specific action to take"),
+    category: z.enum(['Technical', 'Commercial', 'Enablement', 'Qualification']).describe("Type of action"),
+    owner: z.string().describe("Who should drive this (Sales Rep, SE, AE, Partner, etc.)"),
+    timeline: z.string().describe("Suggested timeframe (e.g. 'Week 1', 'Before PoC', 'Q1 2026')"),
+    priority: z.enum(['High', 'Medium', 'Low']).describe("Urgency of this action")
+  })).describe("3-7 concrete next steps for the sales team")
 });
 
 UI:
@@ -295,7 +354,25 @@ Left Col: Upload component.
 - **Features:**
   - Group "Current State" and "Future State" side-by-side.
   - Use `lucide-react` icons for sections (User icon for People, Server icon for Tech).
-**New Section: The "3 Whys" Qualification Card**
+
+**Section: Use Case Summary**
+- Render a dedicated card/section showing the detailed use case:
+  - Application Purpose
+  - Business Problem Solved
+  - Key Workflows (as bullet list)
+  - Data Patterns
+  - Scale Characteristics
+- Use icons like FileText or Target from lucide-react
+
+**Section: Data Flow Diagram**
+- Render a visual representation of the data flow:
+  - **Components:** Display as cards/boxes organized by type (Client, Service, Database, Integration)
+  - **Flows:** Show arrows/connections between components with flow descriptions
+  - **Metrics:** Display volume/velocity information for each flow
+  - Use Network or Workflow icons from lucide-react
+- Consider using a simple left-to-right or top-to-bottom layout for clarity
+
+**Section: The "3 Whys" Qualification Card**
 - Render a 3-column Grid (Why Anything, Why MongoDB, Why Now).
 - **Visual Status:**
   - If `status === 'FOUND'`: Show Green Checkmark + Content.
@@ -304,6 +381,14 @@ Left Col: Upload component.
   - Below the grid, render a "Suggested Discovery Questions" box.
   - Display the `gapAnalysis.discoveryQuestions` list.
   - Style this distinctively (e.g., a yellow/gold border) to alert the Rep that these are their next steps.
+
+**Section: Next Steps**
+- Render an actionable task list showing next steps:
+  - Group by category (Technical, Commercial, Enablement, Qualification)
+  - Show priority with visual indicators (High=Red, Medium=Yellow, Low=Green)
+  - Display owner and timeline for each action
+  - Use CheckSquare or ListTodo icons from lucide-react
+  - Consider sortable/filterable view for larger lists
 
 Execute this plan. Start by generating the Mongoose models.
 
