@@ -52,4 +52,4 @@ ENV PORT=8080
 #ENV HOSTNAME="0.0.0.0"
 
 # Start the application TigerLens
-CMD ["node", "server.js"]
+CMD ["npm", "start"]
