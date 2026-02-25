@@ -3,8 +3,10 @@
 import { useState } from 'react';
 import { loginWithEmail } from '@/app/auth-actions';
 import { Mail, Loader2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 export function LoginForm() {
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -15,7 +17,16 @@ export function LoginForm() {
     setIsLoading(true);
 
     try {
-      await loginWithEmail(email);
+      const result = await loginWithEmail(email);
+
+      if (!result.success) {
+        setError(result.error || 'Failed to login');
+        setIsLoading(false);
+        return;
+      }
+
+      router.push('/');
+      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to login');
       setIsLoading(false);
