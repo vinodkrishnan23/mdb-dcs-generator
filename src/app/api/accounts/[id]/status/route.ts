@@ -11,7 +11,7 @@ export async function GET(
     await dbConnect();
     
     const account = await Account.findById(id)
-      .select('status progressStep progressDetails dcsData error')
+      .select('status progressStep progressDetails dcsData')
       .lean();
     
     if (!account) {
@@ -25,8 +25,7 @@ export async function GET(
       status: account.status || 'PENDING',
       progressStep: account.progressStep,
       progressDetails: account.progressDetails,
-      dcsData: account.dcsData,
-      error: account.error
+      dcsData: account.dcsData
     });
   } catch (error) {
     console.error('Error fetching account status:', error);
