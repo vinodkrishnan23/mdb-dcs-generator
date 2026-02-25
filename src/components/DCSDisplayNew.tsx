@@ -1,5 +1,5 @@
 import { type DCSData } from '@/lib/schemas';
-import { CheckCircle2, AlertCircle, HelpCircle } from 'lucide-react';
+import { CheckCircle2, AlertCircle, HelpCircle, FileText, Network, CheckSquare } from 'lucide-react';
 
 interface DCSDisplayProps {
   dcsData: DCSData;
@@ -220,6 +220,100 @@ export function DCSDisplay({ dcsData, accountName }: DCSDisplayProps) {
         </div>
       </div>
 
+      {/* Use Case Summary Section */}
+      <div className="border-2 border-purple-300 bg-purple-50 rounded-lg p-6 mb-4">
+        <h3 className="text-xl font-bold text-purple-900 mb-4 flex items-center">
+          <FileText className="w-6 h-6 mr-2" />
+          Use Case Summary
+        </h3>
+        
+        <div className="space-y-4">
+          <div>
+            <h4 className="font-semibold text-purple-800 mb-1">Application Purpose</h4>
+            <p className="text-gray-800">{technical.useCaseSummary.applicationPurpose}</p>
+          </div>
+          
+          <div>
+            <h4 className="font-semibold text-purple-800 mb-1">Business Problem</h4>
+            <p className="text-gray-800">{technical.useCaseSummary.businessProblem}</p>
+          </div>
+          
+          <div>
+            <h4 className="font-semibold text-purple-800 mb-1">Key Workflows</h4>
+            <ul className="list-disc list-inside space-y-1">
+              {technical.useCaseSummary.keyWorkflows.map((workflow, i) => (
+                <li key={i} className="text-gray-800">{workflow}</li>
+              ))}
+            </ul>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <h4 className="font-semibold text-purple-800 mb-1">Data Patterns</h4>
+              <p className="text-gray-800">{technical.useCaseSummary.dataPatterns}</p>
+            </div>
+            
+            <div>
+              <h4 className="font-semibold text-purple-800 mb-1">Scale Characteristics</h4>
+              <p className="text-gray-800">{technical.useCaseSummary.scaleCharacteristics}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Data Flow Diagram Section */}
+      <div className="border-2 border-indigo-300 bg-indigo-50 rounded-lg p-6 mb-4">
+        <h3 className="text-xl font-bold text-indigo-900 mb-4 flex items-center">
+          <Network className="w-6 h-6 mr-2" />
+          Data Flow Diagram
+        </h3>
+        
+        {/* Components */}
+        <div className="mb-6">
+          <h4 className="font-semibold text-indigo-800 mb-3">System Components</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+            {technical.dataFlowDiagram.components.map((component, i) => (
+              <div key={i} className="bg-white rounded-lg p-3 border-2 border-indigo-200">
+                <div className="flex items-start">
+                  <div className={`w-2 h-2 rounded-full mt-2 mr-2 flex-shrink-0 ${
+                    component.type === 'Client' ? 'bg-blue-500' :
+                    component.type === 'Service' ? 'bg-green-500' :
+                    component.type === 'Database' ? 'bg-purple-500' :
+                    component.type === 'Integration' ? 'bg-orange-500' :
+                    'bg-gray-500'
+                  }`} />
+                  <div>
+                    <div className="font-semibold text-gray-800 text-sm">{component.name}</div>
+                    <div className="text-xs text-gray-500 mb-1">{component.type}</div>
+                    <div className="text-xs text-gray-700">{component.description}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        
+        {/* Flows */}
+        <div>
+          <h4 className="font-semibold text-indigo-800 mb-3">Data Flows</h4>
+          <div className="space-y-3">
+            {technical.dataFlowDiagram.flows.map((flow, i) => (
+              <div key={i} className="bg-white rounded-lg p-3 border border-indigo-200">
+                <div className="flex items-center mb-2">
+                  <span className="font-semibold text-gray-800">{flow.from}</span>
+                  <span className="mx-2 text-indigo-600">→</span>
+                  <span className="font-semibold text-gray-800">{flow.to}</span>
+                </div>
+                <p className="text-sm text-gray-700 mb-1">{flow.description}</p>
+                {flow.metrics && (
+                  <p className="text-xs text-gray-600 italic">Metrics: {flow.metrics}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Stakeholders Table */}
       <table className="w-full border-collapse border border-gray-300 mb-4">
         <thead>
@@ -404,6 +498,54 @@ export function DCSDisplay({ dcsData, accountName }: DCSDisplayProps) {
           </tr>
         </tbody>
       </table>
+
+      {/* Next Steps Section */}
+      <div className="border-2 border-green-300 bg-green-50 rounded-lg p-6 mb-4">
+        <h3 className="text-xl font-bold text-green-900 mb-4 flex items-center">
+          <CheckSquare className="w-6 h-6 mr-2" />
+          Next Steps
+        </h3>
+        
+        {strategy.nextSteps && strategy.nextSteps.length > 0 ? (
+          <div className="space-y-4">
+            {/* Group by category */}
+            {['Technical', 'Commercial', 'Enablement', 'Qualification'].map((category) => {
+              const categorySteps = strategy.nextSteps.filter(step => step.category === category);
+              if (categorySteps.length === 0) return null;
+              
+              return (
+                <div key={category}>
+                  <h4 className="font-semibold text-green-800 mb-2 text-lg">{category}</h4>
+                  <div className="space-y-2">
+                    {categorySteps.map((step, i) => (
+                      <div key={i} className="bg-white rounded-lg p-4 border border-green-200">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                                step.priority === 'High' ? 'bg-red-100 text-red-700' :
+                                step.priority === 'Medium' ? 'bg-yellow-100 text-yellow-700' :
+                                'bg-blue-100 text-blue-700'
+                              }`}>
+                                {step.priority} Priority
+                              </span>
+                              <span className="text-xs text-gray-600">Timeline: {step.timeline}</span>
+                            </div>
+                            <p className="text-gray-800 font-medium mb-1">{step.action}</p>
+                            <p className="text-sm text-gray-600">Owner: {step.owner}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-gray-600">No next steps defined yet.</p>
+        )}
+      </div>
     </div>
   );
 }

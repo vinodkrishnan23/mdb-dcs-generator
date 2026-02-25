@@ -1,0 +1,4 @@
+envSecrets:
+    MONGODB_URI: dcs-generator
+    ecr_access_key: dcs-generator
+    ecr_secret_key: dcs-generator

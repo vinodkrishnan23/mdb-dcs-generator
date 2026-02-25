@@ -284,6 +284,27 @@ ${combinedText}`
   - **Specific Features:** Time Series, Atlas Search, Vector Search, Online Archive.
   - **Outcomes:** Measurable success metrics (e.g., "P99 < 10ms").
 
+**C. USE CASE SUMMARY**
+- **Detailed Use Case:** Provide a comprehensive summary describing:
+  - **Application Purpose:** What the application does and who the end users are
+  - **Business Problem:** The business problem it solves
+  - **Key Workflows:** Key workflows and user interactions
+  - **Data Patterns:** Read-heavy, write-heavy, real-time requirements, caching strategies
+  - **Scale Characteristics:** Scale and performance characteristics
+
+**D. DATA FLOW DIAGRAM**
+- **Component Description:** Extract a list of all system components in the data flow:
+  - Client/User Interface layers (Web, Mobile, API consumers)
+  - Application/Service layers (Microservices, APIs, Backend services)
+  - Data layer (Current database, MongoDB Atlas target, caching layers)
+  - External integrations (Third-party APIs, Cloud services, Message queues)
+- **Flow Description:** Describe the data flow between components:
+  - How data enters the system (user actions, APIs, events)
+  - Processing and transformation steps
+  - Storage and retrieval patterns
+  - Output/consumption of data
+- **Volume & Velocity:** Key metrics for each flow (requests per second, data volume, latency requirements)
+
 TRANSCRIPT:
 ${sanitizedContext}`
         }),
@@ -364,6 +385,16 @@ Based *strictly* on what is MISSING in the 3 Whys above, generate 5-7 Discovery 
 - **Bad Question:** 'Why do you want to move now?'
 - **Good Question:** 'You mentioned the Oracle license expires in Q4—what is the specific date, and what is the financial penalty if we miss that window?'
 - **Good Question:** 'You mentioned latency is an issue—how is that specifically impacting your mobile users' cart abandonment rate?'
+
+**F. NEXT STEPS**
+Based on the deal stage, timeline, and gaps identified, provide 3-7 concrete, actionable next steps for the sales team:
+- **Technical Actions:** PoC requirements, architecture review sessions, migration planning workshops
+- **Commercial Actions:** Executive briefings, pricing discussions, contract negotiations
+- **Enablement:** Documentation needed, training sessions, customer success planning
+- **Qualification:** Information gathering tasks based on gaps in the 3 Whys
+- **Timeline:** Associate each action with a suggested timeframe (e.g., 'Week 1', 'Before PoC', 'Q1 2026')
+- **Owner:** Suggest who should drive each action (Sales Rep, SE, Account Executive, Partner)
+- **Priority:** Mark each action as High, Medium, or Low priority based on urgency and impact
 
 TRANSCRIPT:
 ${sanitizedContext}`
