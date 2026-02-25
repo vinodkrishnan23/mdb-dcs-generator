@@ -9,7 +9,7 @@ import { setUser, clearUser } from '@/lib/auth';
  */
 export async function loginWithEmail(email: string) {
   if (!email || !email.includes('@')) {
-    throw new Error('Invalid email address');
+    return { success: false, error: 'Invalid email address' };
   }
 
   await setUser({
@@ -17,7 +17,7 @@ export async function loginWithEmail(email: string) {
     name: email.split('@')[0], // Use email prefix as name
   });
 
-  redirect('/');
+  return { success: true };
 }
 
 /**
