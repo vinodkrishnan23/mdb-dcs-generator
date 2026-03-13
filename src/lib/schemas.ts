@@ -132,11 +132,54 @@ export const strategySchema = z.object({
   })).describe("3-7 concrete next steps for the sales team")
 });
 
+// 4. MongoDB Contribution Schema - Agent 4: The Contribution Analyst
+export const mongodbContributionSchema = z.object({
+  teamMembers: z.array(z.object({
+    name: z.string().describe("Name of MongoDB team member if mentioned, otherwise use their role"),
+    role: z.string().describe("Role e.g. Sales Rep, Solutions Architect, AE, CSM")
+  })).describe("MongoDB team members who attended the call"),
+
+  technicalContributions: z.array(z.object({
+    contribution: z.string().describe("Technical suggestion or recommendation made by MongoDB SA"),
+    contributor: z.string().describe("Which MongoDB team member made this contribution"),
+    type: z.enum(['Architecture', 'Feature Suggestion', 'Demo', 'PoC', 'Migration', 'Other']),
+    customerReaction: z.enum(['Validated', 'Not Validated', 'Rejected', 'Unknown']).describe("Did the customer confirm interest?")
+  })).describe("Technical contributions from MongoDB SA/SE"),
+
+  salesMessaging: z.array(z.object({
+    message: z.string().describe("Value proposition or sales point raised"),
+    contributor: z.string().describe("Which MongoDB team member said this"),
+    type: z.enum(['Value Proposition', 'Competitive Positioning', 'Pricing', 'Reference', 'Other']),
+    customerReaction: z.enum(['Validated', 'Not Validated', 'Rejected', 'Unknown'])
+  })).describe("Sales messaging used by MongoDB team"),
+
+  questionsAsked: z.array(z.object({
+    question: z.string().describe("Discovery question asked by MongoDB team"),
+    askedBy: z.string().describe("Which MongoDB team member asked this"),
+    effectiveness: z.enum(['Effective', 'Partially Effective', 'Ineffective']).describe("Did it uncover useful customer information?"),
+    customerResponse: z.string().describe("Brief summary of how customer responded")
+  })).describe("Discovery questions asked by MongoDB team"),
+
+  unvalidatedSuggestions: z.array(z.object({
+    suggestion: z.string().describe("Feature or solution suggested by MongoDB but NOT confirmed by customer"),
+    suggestedBy: z.string().describe("Which MongoDB team member suggested this"),
+    followUpNeeded: z.string().describe("What follow-up is needed to validate this suggestion")
+  })).describe("MongoDB suggestions that customer did not validate or confirm"),
+
+  overallEffectiveness: z.object({
+    conversationStyle: z.enum(['Customer-Centric', 'Balanced', 'MongoDB-Centric']).describe("Was the conversation focused on customer needs or MongoDB pitching?"),
+    keyPainPointsUncovered: z.boolean().describe("Did MongoDB team successfully uncover key pain points?"),
+    summary: z.string().describe("2-3 sentence assessment of how well MongoDB team conducted discovery"),
+    improvementAreas: z.array(z.string()).describe("Specific areas where MongoDB team could improve")
+  })
+});
+
 // Combined DCS type
 export type TechnicalData = z.infer<typeof technicalSchema>;
 export type CommercialData = z.infer<typeof commercialSchema>;
 export type StrategyData = z.infer<typeof strategySchema>;
 export type RouterData = z.infer<typeof routerSchema>;
+export type MongodbContributionData = z.infer<typeof mongodbContributionSchema>;
 
 export interface DCSData {
   workloadId: string;
@@ -144,4 +187,5 @@ export interface DCSData {
   technical: TechnicalData;
   commercial: CommercialData;
   strategy: StrategyData;
+  mongodbContribution?: MongodbContributionData;
 }
