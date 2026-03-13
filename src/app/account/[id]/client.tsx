@@ -13,7 +13,7 @@ import { useRouter } from 'next/navigation';
 
 interface AccountPageClientProps {
   params: Promise<{ id: string }>;
-  user: { email: string; name: string };
+  user: { email: string; name?: string };
 }
 
 export function AccountPageClient({ params, user }: AccountPageClientProps) {
