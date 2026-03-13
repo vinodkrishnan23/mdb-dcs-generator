@@ -229,7 +229,11 @@ ${combinedText}`
         experimental_telemetry: { isEnabled: true },
         prompt: `You are a Context Filter. Read the transcript below.
 
+Identify who is the 'Customer' and who is the 'MongoDB Seller/SA'.
+
 REWRITE the transcript to include ONLY the dialogue, facts, and context relevant to the workload: **"${opp.workloadName}"**.
+
+Retain the speaker labels (e.g., Customer vs. MongoDB) for every line.
 
 **WORKLOAD CONTEXT:**
 ${opp.contextDescription}
@@ -239,7 +243,7 @@ ${opp.contextDescription}
 2. IF a metric (e.g. '5TB data') is not explicitly linked to this workload, DELETE IT.
 3. DELETE dates, stakeholder names, or technical details NOT relevant to this workload.
 4. PRESERVE all dates, stakeholder names, technical specs, and pain points that ARE relevant to this workload.
-5. RETURN only the filtered text (no summaries or commentary).
+5. RETURN only the filtered text with clear speaker labels.
 
 **ORIGINAL TRANSCRIPT:**
 ${combinedText}`
@@ -269,6 +273,10 @@ ${combinedText}`
           schema: technicalSchema,
           experimental_telemetry: { isEnabled: true },
           prompt: `You are a Principal Architect. Extract ONLY technical evidence: specific instance types (e.g. m5.large), database versions, topology (Replica Set vs Sharded), and metrics (latency, throughput). Ignore sales politics.
+
+CRITICAL GROUNDING RULE: You must extract information strictly from the CUSTOMER'S perspective.
+- If the MongoDB Rep suggests a feature (e.g., 'You should use Time Series'), DO NOT add it to 'Future State' unless the Customer explicitly agrees or asks for it.
+- Current State and Pain Points must be facts stated by the Customer, not assumptions made by the Rep.
 
 **B. TECHNICAL DEEP DIVE (Current vs. Future)**
 - **Current State Description:** Provide a detailed explanation of the current solution and architecture, including how the system works today, what technologies are in use, and the overall technical landscape.
@@ -345,6 +353,10 @@ ${sanitizedContext}`
           experimental_telemetry: { isEnabled: true },
           prompt: `You are a Deal Strategist. Determine the Sales Motion (Migrate/Replace/Launch/Select) based on strict definitions. Map pain points to Value Drivers (Compete, Save, Risk, Velocity).
 
+CRITICAL GROUNDING RULE: The '3 Whys' and 'Value Drivers' must represent the CUSTOMER'S actual internal motivations, NOT the MongoDB Rep's sales pitch.
+- If the Rep says, 'MongoDB will save you money,' but the Customer never validates it, DO NOT list 'Save Money'. Mark it as MISSING.
+- Only extract Challenges, Objectives, and Compelling Events that the CUSTOMER explicitly stated or firmly agreed to.
+
 **A. VALUE DRIVERS (The "Why Now")**
 Map every pain point to one of these 4 pillars:
 1. **Compete / Revenue:** Maximize competitive advantage.
@@ -381,7 +393,7 @@ Map every pain point to one of these 4 pillars:
    - *If missing:* Mark status as MISSING. Note what's needed.
 
 **E. GAP ANALYSIS (The Coach)**
-Based *strictly* on what is MISSING in the 3 Whys above, generate 5-7 Discovery Questions for the Sales Rep.
+Based *strictly* on what is MISSING in the 3 Whys above, generate 3-5 Discovery Questions for the Sales Rep.
 - **Bad Question:** 'Why do you want to move now?'
 - **Good Question:** 'You mentioned the Oracle license expires in Q4—what is the specific date, and what is the financial penalty if we miss that window?'
 - **Good Question:** 'You mentioned latency is an issue—how is that specifically impacting your mobile users' cart abandonment rate?'
@@ -479,17 +491,29 @@ ${sanitizedContext}`
 
 export async function getAccounts(userEmail: string) {
   try {
+    console.log('=== getAccounts called for:', userEmail);
     await dbConnect();
-    // Find accounts that match the userEmail only
+    
+    // Find accounts where user is owner OR in sharedWith array
     const accounts = await Account.find({
-      userEmail: userEmail
+      $or: [
+        { userEmail: userEmail },
+        { sharedWith: userEmail }
+      ]
     }).sort({ createdAt: -1 });
+    
+    console.log('Found', accounts.length, 'accounts');
+    accounts.forEach(acc => {
+      console.log('- Account:', acc.name, '| Owner:', acc.userEmail, '| SharedWith:', acc.sharedWith);
+    });
+    
     return accounts.map(account => ({
       _id: account._id.toString(),
       name: account.name,
       status: account.status,
       transcriptCount: account.transcriptIds?.length || 0,
-      createdAt: account.createdAt
+      createdAt: account.createdAt,
+      isOwner: account.userEmail === userEmail
     }));
   } catch (error) {
     console.error('Error fetching accounts:', error);
@@ -497,7 +521,7 @@ export async function getAccounts(userEmail: string) {
   }
 }
 
-export async function getAccountDetails(accountId: string) {
+export async function getAccountDetails(accountId: string, userEmail: string) {
   try {
     await dbConnect();
     const account = await Account.findById(accountId).populate('transcriptIds');
@@ -506,9 +530,20 @@ export async function getAccountDetails(accountId: string) {
       return null;
     }
 
+    // Check if user has access (owner OR in sharedWith array)
+    const isOwner = account.userEmail === userEmail;
+    const isShared = account.sharedWith && account.sharedWith.includes(userEmail);
+    
+    if (!isOwner && !isShared) {
+      return null; // User has no access to this account
+    }
+
     return {
       _id: account._id.toString(),
       name: account.name,
+      userEmail: account.userEmail,
+      sharedWith: account.sharedWith || [],
+      isOwner,
       status: account.status,
       progressStep: account.progressStep || '',
       progressDetails: account.progressDetails ? JSON.parse(JSON.stringify(account.progressDetails)) : {},
@@ -529,5 +564,90 @@ export async function getAccountDetails(accountId: string) {
   } catch (error) {
     console.error('Error fetching account details:', error);
     return null;
+  }
+}
+// Sharing Actions
+
+export async function shareAccount(accountId: string, emailToShareWith: string, currentUserEmail: string) {
+  try {
+    console.log('=== shareAccount called ===');
+    console.log('accountId:', accountId);
+    console.log('emailToShareWith:', emailToShareWith);
+    console.log('currentUserEmail:', currentUserEmail);
+    
+    await dbConnect();
+    
+    const account = await Account.findById(accountId);
+    console.log('Account found:', account ? 'Yes' : 'No');
+    
+    if (!account) {
+      return { success: false, error: 'Account not found' };
+    }
+    
+    console.log('Account owner:', account.userEmail);
+    console.log('Current sharedWith:', account.sharedWith);
+    
+    // Verify current user is the owner
+    if (account.userEmail !== currentUserEmail) {
+      return { success: false, error: 'Only account owner can share' };
+    }
+    
+    // Prevent sharing with self
+    if (emailToShareWith === currentUserEmail) {
+      return { success: false, error: 'Cannot share account with yourself' };
+    }
+    
+    // Check if already shared
+    if (account.sharedWith && account.sharedWith.includes(emailToShareWith)) {
+      return { success: false, error: 'Account already shared with this user' };
+    }
+    
+    // Add email to sharedWith array
+    const updatedAccount = await Account.findByIdAndUpdate(
+      accountId, 
+      { $push: { sharedWith: emailToShareWith } },
+      { new: true } // Return the updated document
+    );
+    
+    console.log('After update - sharedWith:', updatedAccount?.sharedWith);
+    console.log('=== shareAccount completed successfully ===');
+    
+    revalidatePath(`/account/${accountId}`);
+    revalidatePath('/');
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error sharing account:', error);
+    return { success: false, error: 'Failed to share account' };
+  }
+}
+
+export async function unshareAccount(accountId: string, emailToRemove: string, currentUserEmail: string) {
+  try {
+    await dbConnect();
+    
+    const account = await Account.findById(accountId);
+    
+    if (!account) {
+      return { success: false, error: 'Account not found' };
+    }
+    
+    // Verify current user is the owner
+    if (account.userEmail !== currentUserEmail) {
+      return { success: false, error: 'Only account owner can unshare' };
+    }
+    
+    // Remove email from sharedWith array
+    await Account.findByIdAndUpdate(accountId, {
+      $pull: { sharedWith: emailToRemove }
+    });
+    
+    revalidatePath(`/account/${accountId}`);
+    revalidatePath('/');
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error unsharing account:', error);
+    return { success: false, error: 'Failed to unshare account' };
   }
 }

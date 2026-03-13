@@ -41,6 +41,8 @@
 
 ### `models/Account.ts`
 - `name`: String
+- `userEmail`: String (Owner's email)
+- `sharedWith`: [String] (Array of email addresses with access)
 - `industryContext`: String (e.g., "FinTech")
 - `transcriptIds`: [ObjectId ref 'Transcript']
 - `dcsData`: **Array** of Objects
@@ -53,6 +55,77 @@
 - `filename`: String
 - `fullText`: String (Max 16MB document limit is fine for text)
 - `uploadedAt`: Date
+
+---
+
+## 2.1. Sharing & Collaboration
+
+### Architecture
+**Ownership Model:**
+- Each account has ONE owner (identified by `userEmail`)
+- Owner can share with multiple users via email (stored in `sharedWith` array)
+- All changes are immediately visible to owner and all shared users
+
+### Access Control
+**Owner Permissions:**
+- View account and all DCS data
+- Upload transcripts
+- Generate/regenerate DCS
+- Share/unshare with other users
+- Delete account
+
+**Shared User Permissions:**
+- View account and all DCS data
+- Upload transcripts
+- Generate/regenerate DCS
+- **Cannot** share with others
+- **Cannot** delete account
+
+### Server Actions
+1. **shareAccount(accountId, emailToShareWith, currentUserEmail)**
+   - Validates that current user is the owner
+   - Prevents sharing with self
+   - Checks for duplicate shares
+   - Adds email to `sharedWith` array
+   - Revalidates paths
+
+2. **unshareAccount(accountId, emailToRemove, currentUserEmail)**
+   - Validates that current user is the owner
+   - Removes email from `sharedWith` array
+   - Revalidates paths
+
+3. **getAccounts(userEmail)**
+   - Returns accounts where `userEmail === account.userEmail` (owned accounts)
+   - **ALSO** returns accounts where `userEmail` is in `account.sharedWith` array (shared accounts)
+   - Each account includes `isOwner` flag for UI rendering
+
+4. **getAccountDetails(accountId, userEmail)**
+   - Checks if user has access: `account.userEmail === userEmail` OR `userEmail in account.sharedWith`
+   - Returns null if no access
+   - Returns account with access metadata
+
+### UI Components
+1. **ShareAccountModal**
+   - Shows owner email (read-only)
+   - Email input field for sharing
+   - List of current shares with remove button (owner only)
+   - Share/Unshare actions with error handling
+
+2. **Account List (Dashboard)**
+   - Owned accounts: Full card with standard styling
+   - Shared accounts: Badge showing "Shared" + owner cannot be deleted
+   - Both types clickable to view/edit
+
+3. **Account Detail Page**
+   - Owner sees: Share button in header
+   - Shared user sees: "Shared with you by [owner]" badge
+   - Both can upload transcripts and generate DCS
+   - Delete button only visible to owner
+
+### Real-time Sync
+- Uses Next.js revalidatePath() to invalidate cache
+- Shared users see updates on next page load/navigation
+- No WebSocket required for MVP (eventual consistency is acceptable)
 
 ---
 
@@ -71,13 +144,15 @@ Iterate through each valid opportunity (`confidence > 0.6`). Do NOT pass the raw
 
 **Step 2a: The Slicer Agent (The Firewall)**
 For each opportunity, run a specialized AI call to generate a **Sanitized Context**.
-- **Goal:** Remove all text unrelated to the specific workload.
+- **Goal:** Remove all text unrelated to the specific workload AND identify the speakers..
 - **Prompt:**
   > "You are a Context Filter. Read the transcript below.
+  > Identify who is the 'Customer' and who is the 'MongoDB Seller/SA'.
   > REWRITE the transcript to include ONLY the dialogue, facts, and context relevant to the workload: '${opp.workloadName}'.
+  > Retain the speaker labels (e.g., Customer vs. MongoDB) for every line.
   > REMOVE all discussion about other projects.
   > IF a metric (e.g. '5TB data') is not explicitly linked to this workload, DELETE IT.
-  > RETURN only the filtered text."
+  > RETURN only the filtered text with clear speaker labels."
 - **Output:** `sanitizedContext` (String)
 
 **Step 2b: The Scoped Extraction Chain**
@@ -87,7 +162,9 @@ Run the **3-Agent Chain** (Technical, Commercial, Strategy) in parallel using th
 **Focus:** Hardware, Topology, Latency, Version numbers, Use Cases, Data Flow.
 **System Prompt:**
 > "You are a Principal Architect. Extract ONLY technical evidence: specific instance types (e.g. m5.large), database versions, topology (Replica Set vs Sharded), and metrics (latency, throughput). Ignore sales politics.
->
+> "CRITICAL GROUNDING RULE: You must extract information strictly from the CUSTOMER'S perspective. 
+> - If the MongoDB Rep suggests a feature (e.g., 'You should use Time Series'), DO NOT add it to 'Future State' unless the Customer explicitly agrees or asks for it.
+> - Current State and Pain Points must be facts stated by the Customer, not assumptions made by the Rep."
 > **A. ACCOUNT & WORKLOAD**
 > - **Workload Name:** Format: "App Name / Project Name".
 > - **Industry Context:** What do they sell? Who do they serve?
@@ -146,6 +223,9 @@ Run the **3-Agent Chain** (Technical, Commercial, Strategy) in parallel using th
 
 #### Agent 3: The Deal Strategist
 **Focus:** Logic mapping (Sales Motion, Value Drivers), Next Steps.
+> "CRITICAL GROUNDING RULE: The '3 Whys' and 'Value Drivers' must represent the CUSTOMER'S actual internal motivations, NOT the MongoDB Rep's sales pitch. 
+> - If the Rep says, 'MongoDB will save you money,' but the Customer never validates it, DO NOT list 'Save Money'. Mark it as MISSING.
+> - Only extract Challenges, Objectives, and Compelling Events that the CUSTOMER explicitly stated or firmly agreed to."
 **System Prompt:**
 > "You are a Deal Strategist. Determine the Sales Motion based on strict definitions. Map pain points to Value Drivers.
 >

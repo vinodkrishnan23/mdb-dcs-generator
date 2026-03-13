@@ -3,6 +3,7 @@ import mongoose, { Schema, Document, Model } from 'mongoose';
 export interface IAccount extends Document {
   name: string;
   userEmail: string;
+  sharedWith: string[]; // Array of email addresses with access
   industryContext?: string;
   transcriptIds: mongoose.Types.ObjectId[];
   dcsData: any[]; // Array of DCS objects
@@ -31,6 +32,9 @@ const AccountSchema: Schema = new Schema({
     type: String,
     required: true,
   },
+  sharedWith: [{
+    type: String,
+  }],
   industryContext: {
     type: String,
     default: '',
