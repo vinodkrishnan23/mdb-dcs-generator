@@ -29,12 +29,12 @@ export function DCSPageClient({ params, user }: DCSPageClientProps) {
     async function loadAccount() {
       const { id } = await params;
       setAccountId(id);
-      const accountData = await getAccountDetails(id);
+      const accountData = await getAccountDetails(id, user.email);
       setAccount(accountData);
       setLoading(false);
     }
     loadAccount();
-  }, [params]);
+  }, [params, user.email]);
 
   const handleExportPDF = async () => {
     if (!account) return;
