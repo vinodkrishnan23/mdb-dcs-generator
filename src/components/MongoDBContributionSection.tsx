@@ -272,7 +272,15 @@ export function MongoDBContributionSection({
                     </span>
                   </div>
                   <p className="text-xs text-gray-600">
-                    <span className="text-gray-500">Asked by {item.askedBy} — </span>
+                    <span className="text-gray-500">
+                      Asked by <span className="font-medium text-gray-700">{item.askedBy}</span>
+                      {item.askedByRole && (
+                        <span className="ml-1 px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
+                          {item.askedByRole}
+                        </span>
+                      )}
+                      {' — '}
+                    </span>
                     <span className="italic">Customer: &ldquo;{item.customerResponse}&rdquo;</span>
                   </p>
                 </div>

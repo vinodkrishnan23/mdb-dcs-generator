@@ -444,9 +444,21 @@ C. SALES MESSAGING
 - For EACH message, note if the customer validated/confirmed it or not
 
 D. QUESTIONS ASKED BY MONGODB TEAM
-- What discovery questions did the MongoDB team ask?
-- How did the customer respond?
-- Were the questions effective in uncovering customer pain points?
+
+CRITICAL ATTRIBUTION RULE — for EVERY question you extract:
+1. Find the exact line in the transcript where the question appears
+2. Look at the speaker label on THAT specific line (e.g. "Vinod:", "Santhosh:", "MongoDB SA:")
+3. Use ONLY that label as the 'askedBy' value — do NOT infer the speaker from context or overall participation level
+4. Different team members ask different questions — do not assume all questions were asked by the same person
+5. SA/Solutions Architects typically ask technical questions (architecture, scale, latency, data model)
+   AE/Sales Reps typically ask commercial/strategic questions (timeline, budget, decision process)
+   Use this as a cross-check: if a deeply technical question is attributed to the AE, re-read the line carefully
+
+For each question:
+- Extract the exact or close paraphrase of the question from the transcript
+- Record the speaker name + role from the transcript line label
+- Note the customer's response
+- Rate effectiveness: did it uncover useful information?
 
 E. UNVALIDATED SUGGESTIONS
 - List specific features/solutions suggested by MongoDB that the customer did NOT confirm or validate

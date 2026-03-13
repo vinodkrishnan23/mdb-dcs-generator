@@ -154,11 +154,12 @@ export const mongodbContributionSchema = z.object({
   })).describe("Sales messaging used by MongoDB team"),
 
   questionsAsked: z.array(z.object({
-    question: z.string().describe("Discovery question asked by MongoDB team"),
-    askedBy: z.string().describe("Which MongoDB team member asked this"),
+    question: z.string().describe("Exact or close paraphrase of the discovery question as it appears in the transcript"),
+    askedBy: z.string().describe("EXACT name of the MongoDB team member whose speaker label appears on this line in the transcript. Do NOT infer — read the label directly before the question."),
+    askedByRole: z.string().describe("Role of that person e.g. Solutions Architect, Sales Rep, AE"),
     effectiveness: z.enum(['Effective', 'Partially Effective', 'Ineffective']).describe("Did it uncover useful customer information?"),
     customerResponse: z.string().describe("Brief summary of how customer responded")
-  })).describe("Discovery questions asked by MongoDB team"),
+  })).describe("Discovery questions asked by MongoDB team — each question attributed to the speaker whose label appears on THAT line, not inferred from overall participation"),
 
   unvalidatedSuggestions: z.array(z.object({
     suggestion: z.string().describe("Feature or solution suggested by MongoDB but NOT confirmed by customer"),
