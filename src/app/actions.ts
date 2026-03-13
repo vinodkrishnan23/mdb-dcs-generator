@@ -6,7 +6,7 @@ import Account from '@/models/Account';
 import Transcript from '@/models/Transcript';
 import { generateObject } from 'ai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { technicalSchema, commercialSchema, strategySchema, routerSchema, type DCSData } from '@/lib/schemas';
+import { technicalSchema, commercialSchema, strategySchema, routerSchema, mongodbContributionSchema, type DCSData } from '@/lib/schemas';
 import { z } from 'zod';
 
 // Configure Google AI
@@ -265,8 +265,9 @@ ${combinedText}`
       // ---------------------------------------------
       // STEP 2b: THE SCOPED EXTRACTION CHAIN
       // ---------------------------------------------
-      // Run 3 agents in parallel for this workload using sanitizedContext
-      const [technicalResult, commercialResult, strategyResult] = await Promise.all([
+      // Run 4 agents in parallel for this workload
+      // Agents 1-3 use sanitizedContext (customer-only), Agent 4 uses full combinedText (MongoDB team dialogue)
+      const [technicalResult, commercialResult, strategyResult, mongodbContributionResult] = await Promise.all([
         // Agent 1: Technical Architect
         generateObject({
           model: googleAI('gemini-2.5-pro'),
@@ -410,6 +411,57 @@ Based on the deal stage, timeline, and gaps identified, provide 3-7 concrete, ac
 
 TRANSCRIPT:
 ${sanitizedContext}`
+        }),
+
+        // Agent 4: MongoDB Contribution Analyst
+        // NOTE: Uses full combinedText (NOT sanitizedContext) — we WANT to see what MongoDB team said
+        generateObject({
+          model: googleAI('gemini-2.5-pro'),
+          schema: mongodbContributionSchema,
+          experimental_telemetry: { isEnabled: true },
+          prompt: `You are a Conversation Analyst. Your job is to summarize ONLY what the MongoDB team (Sales Rep, Solutions Architect, AE) said and contributed during this conversation about the workload: "${opp.workloadName}".
+
+CRITICAL RULES:
+- ONLY extract dialogue and contributions FROM MongoDB employees
+- DO NOT include customer statements in this section
+- MongoDB employees can be identified by: "we at MongoDB", "our Atlas product", "I work for MongoDB", "MongoDB can", or being labeled as "MongoDB Rep/SA/AE/CSM"
+- If names are not mentioned, use roles (e.g. "MongoDB Sales Rep", "MongoDB SA")
+- Be objective — capture both technical suggestions AND sales messaging
+
+A. MONGODB TEAM MEMBERS
+- Who from MongoDB attended? (Names and roles if mentioned)
+
+B. TECHNICAL CONTRIBUTIONS
+- What technical solutions/features did the SA suggest for this workload?
+- What architectural recommendations were made?
+- What demos, POCs, or technical next steps did they propose?
+- For EACH contribution, note if the customer validated/confirmed it or not
+
+C. SALES MESSAGING
+- What value propositions did the Sales Rep present?
+- What competitive positioning was used?
+- What pricing/commercial points were raised?
+- For EACH message, note if the customer validated/confirmed it or not
+
+D. QUESTIONS ASKED BY MONGODB TEAM
+- What discovery questions did the MongoDB team ask?
+- How did the customer respond?
+- Were the questions effective in uncovering customer pain points?
+
+E. UNVALIDATED SUGGESTIONS
+- List specific features/solutions suggested by MongoDB that the customer did NOT confirm or validate
+- Include what follow-up is needed to validate each suggestion
+
+F. OVERALL EFFECTIVENESS
+- Was the conversation Customer-Centric, Balanced, or MongoDB-Centric?
+- Did the MongoDB team successfully uncover key customer pain points?
+- Provide a 2-3 sentence assessment of discovery quality
+- List specific areas for improvement
+
+WORKLOAD CONTEXT: ${opp.contextDescription}
+
+FULL TRANSCRIPT (find MongoDB team contributions here):
+${combinedText}`
         })
       ]);
 
@@ -419,7 +471,8 @@ ${sanitizedContext}`
         workloadName: opp.workloadName,
         technical: technicalResult.object,
         commercial: commercialResult.object,
-        strategy: strategyResult.object
+        strategy: strategyResult.object,
+        mongodbContribution: mongodbContributionResult.object
       };
 
       console.log(`✓ Completed: ${opp.workloadName}`);
@@ -430,15 +483,18 @@ ${sanitizedContext}`
           inputTokens: (slicerResult.usage?.inputTokens || 0) + 
                       (technicalResult.usage?.inputTokens || 0) + 
                       (commercialResult.usage?.inputTokens || 0) + 
-                      (strategyResult.usage?.inputTokens || 0),
+                      (strategyResult.usage?.inputTokens || 0) +
+                      (mongodbContributionResult.usage?.inputTokens || 0),
           outputTokens: (slicerResult.usage?.outputTokens || 0) + 
                        (technicalResult.usage?.outputTokens || 0) + 
                        (commercialResult.usage?.outputTokens || 0) + 
-                       (strategyResult.usage?.outputTokens || 0),
+                       (strategyResult.usage?.outputTokens || 0) +
+                       (mongodbContributionResult.usage?.outputTokens || 0),
           totalTokens: (slicerResult.usage?.totalTokens || 0) + 
                       (technicalResult.usage?.totalTokens || 0) + 
                       (commercialResult.usage?.totalTokens || 0) + 
-                      (strategyResult.usage?.totalTokens || 0)
+                      (strategyResult.usage?.totalTokens || 0) +
+                      (mongodbContributionResult.usage?.totalTokens || 0)
         }
       };
     });

@@ -1,5 +1,6 @@
 import { type DCSData } from '@/lib/schemas';
 import { CheckCircle2, AlertCircle, HelpCircle, FileText, Network, CheckSquare } from 'lucide-react';
+import { MongoDBContributionSection } from '@/components/MongoDBContributionSection';
 
 interface DCSDisplayProps {
   dcsData: DCSData;
@@ -7,7 +8,7 @@ interface DCSDisplayProps {
 }
 
 export function DCSDisplay({ dcsData, accountName }: DCSDisplayProps) {
-  const { technical, commercial, strategy } = dcsData;
+  const { technical, commercial, strategy, mongodbContribution } = dcsData;
 
   return (
     <div className="space-y-1">
@@ -544,8 +545,13 @@ export function DCSDisplay({ dcsData, accountName }: DCSDisplayProps) {
           </div>
         ) : (
           <p className="text-gray-600">No next steps defined yet.</p>
-        )}
+        )}      
       </div>
+
+      {/* MongoDB Team Contribution Section */}
+      {mongodbContribution && (
+        <MongoDBContributionSection mongodbContribution={mongodbContribution} />
+      )}
     </div>
   );
 }
