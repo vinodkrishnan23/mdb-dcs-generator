@@ -1,183 +1,161 @@
 'use client';
 
-import { CheckCircle, Loader2, Circle, Brain, Scissors, FileSearch } from 'lucide-react';
+import { CheckCircle2, Loader2, Brain, Scissors, FileSearch, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 interface AgentFlowDiagramProps {
   currentStep?: string;
 }
 
-export function AgentFlowDiagram({ currentStep = '' }: AgentFlowDiagramProps) {
-  const [dots, setDots] = useState('');
+const STEPS = [
+  {
+    key: 'router',
+    name: 'Router Agent',
+    label: 'Pass 1',
+    description: 'Identifies distinct workloads from the transcript',
+    icon: Brain,
+    match: (s: string) => s.includes('router') || s.includes('routing'),
+  },
+  {
+    key: 'slicer',
+    name: 'Slicer Agent',
+    label: 'Pass 2a',
+    description: 'Groups topics and context per workload',
+    icon: Scissors,
+    match: (s: string) => s.includes('slicer') || s.includes('slicing'),
+  },
+  {
+    key: 'extraction',
+    name: 'Extraction Agents',
+    label: 'Pass 2b',
+    description: 'Technical · Commercial · Strategy in parallel',
+    icon: FileSearch,
+    match: (s: string) =>
+      s.includes('agent') || s.includes('extract') ||
+      s.includes('technical') || s.includes('commercial') || s.includes('strategy'),
+  },
+  {
+    key: 'mongodb',
+    name: 'MongoDB Contribution Analyst',
+    label: 'Pass 3',
+    description: 'Summarises team contributions from full transcript',
+    icon: Users,
+    match: (s: string) => s.includes('mongodb') || s.includes('contribution'),
+  },
+];
 
-  // Animated dots for processing effect
+export function AgentFlowDiagram({ currentStep = '' }: AgentFlowDiagramProps) {
+  const [tick, setTick] = useState(0);
+
   useEffect(() => {
-    const interval = setInterval(() => {
-      setDots(prev => prev.length >= 3 ? '' : prev + '.');
-    }, 500);
-    return () => clearInterval(interval);
+    const id = setInterval(() => setTick(t => t + 1), 600);
+    return () => clearInterval(id);
   }, []);
 
-  // Determine which steps are complete, active, or pending based on currentStep
-  const steps = [
-    {
-      name: 'Router Agent',
-      description: 'Identifying workloads from transcript',
-      detailedDescription: 'Analyzing conversation to identify distinct sales opportunities and workloads',
-      icon: Brain,
-      key: 'router',
-    },
-    {
-      name: 'Slicer Agent',
-      description: 'Organizing topics per workload',
-      detailedDescription: 'Grouping related discussion topics and context for each identified workload',
-      icon: Scissors,
-      key: 'slicer',
-    },
-    {
-      name: 'Extraction Agents',
-      description: 'Technical, Commercial & Strategy',
-      detailedDescription: 'Extracting technical architecture, commercial details, and strategic insights',
-      icon: FileSearch,
-      key: 'extraction',
-    },
-  ];
+  const lower = currentStep.toLowerCase();
+  const activeIdx = (() => {
+    const idx = STEPS.findIndex(s => s.match(lower));
+    return idx >= 0 ? idx : 0;
+  })();
 
-  // Determine the current step index
-  const getCurrentStepIndex = () => {
-    const lower = currentStep.toLowerCase();
-    if (lower.includes('router') || lower.includes('routing')) return 0;
-    if (lower.includes('slicer') || lower.includes('slicing')) return 1;
-    if (lower.includes('agent') || lower.includes('extract') || lower.includes('technical') || lower.includes('commercial') || lower.includes('strategy')) return 2;
-    return 0; // Default to first step if unknown
-  };
-
-  const currentStepIndex = getCurrentStepIndex();
-
-  const getStepStatus = (index: number) => {
-    if (index < currentStepIndex) return 'completed';
-    if (index === currentStepIndex) return 'active';
-    return 'pending';
-  };
+  const dots = '.'.repeat((tick % 3) + 1);
 
   return (
-    <div className="py-8 px-4">
-      <div className="max-w-5xl mx-auto">
-        <div className="text-center mb-8">
-          <h3 className="text-2xl font-bold text-green-800 mb-2">
-            AI Agents Processing Your Transcript{dots}
-          </h3>
-          <p className="text-gray-600">
-            Multi-agent workflow analyzing and extracting insights
-          </p>
-        </div>
-        
-        <div className="space-y-6">
-          {steps.map((step, index) => {
-            const status = getStepStatus(index);
-            const isLast = index === steps.length - 1;
-            const Icon = step.icon;
-            
-            return (
-              <div key={step.key}>
-                {/* Step Card */}
-                <div 
-                  className={`
-                    relative rounded-xl p-6 border-2 transition-all duration-500 transform
-                    ${status === 'completed' ? 'bg-gradient-to-r from-green-700 to-green-600 border-green-700 text-white scale-95 opacity-75' : ''}
-                    ${status === 'active' ? 'bg-gradient-to-r from-green-50 to-green-100 border-green-600 text-green-900 shadow-2xl scale-100' : ''}
-                    ${status === 'pending' ? 'bg-gray-50 border-gray-300 text-gray-500 scale-95' : ''}
-                  `}
-                >
-                  <div className="flex items-start">
-                    {/* Icon Section */}
-                    <div className={`
-                      p-3 rounded-lg mr-4
-                      ${status === 'completed' ? 'bg-white/20' : ''}
-                      ${status === 'active' ? 'bg-green-200' : ''}
-                      ${status === 'pending' ? 'bg-gray-200' : ''}
-                    `}>
-                      {status === 'completed' && <CheckCircle className="w-8 h-8" />}
-                      {status === 'active' && <Icon className="w-8 h-8 animate-pulse" />}
-                      {status === 'pending' && <Icon className="w-8 h-8" />}
-                    </div>
-                    
-                    {/* Content Section */}
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-bold text-lg">{step.name}</h4>
-                        {status === 'active' && (
-                          <div className="flex items-center space-x-1">
-                            <Loader2 className="w-5 h-5 animate-spin" />
-                            <span className="text-sm font-medium">Processing...</span>
-                          </div>
-                        )}
-                        {status === 'completed' && (
-                          <span className="text-sm font-medium flex items-center">
-                            <CheckCircle className="w-4 h-4 mr-1" />
-                            Complete
-                          </span>
-                        )}
-                        {status === 'pending' && (
-                          <span className="text-sm font-medium text-gray-400">Pending</span>
-                        )}
-                      </div>
-                      
-                      <p className={`text-sm mb-1 ${status === 'pending' ? 'text-gray-400' : ''}`}>
-                        {step.description}
-                      </p>
-                      
-                      {status === 'active' && (
-                        <p className="text-xs text-green-700 mt-2 italic">
-                          {step.detailedDescription}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  
-                  {/* Progress bar for active step */}
-                  {status === 'active' && (
-                    <div className="mt-4 w-full bg-green-200 rounded-full h-1.5 overflow-hidden">
-                      <div className="bg-green-600 h-full rounded-full animate-progress-bar" 
-                           style={{ 
-                             width: '100%',
-                             animation: 'progress 2s ease-in-out infinite'
-                           }} />
-                    </div>
+    <div className="space-y-1">
+      {/* Header */}
+      <div className="mb-5">
+        <p className="text-sm font-semibold text-gray-900">
+          AI agents working{dots}
+        </p>
+        <p className="text-xs text-gray-400 mt-0.5">Multi-pass pipeline · usually 30–90 s</p>
+      </div>
+
+      {/* Steps */}
+      <div className="space-y-0">
+        {STEPS.map((step, i) => {
+          const Icon = step.icon;
+          const isCompleted = i < activeIdx;
+          const isActive    = i === activeIdx;
+          const isPending   = i > activeIdx;
+
+          return (
+            <div key={step.key} className="flex gap-3">
+              {/* Timeline spine */}
+              <div className="flex flex-col items-center w-8 flex-shrink-0">
+                {/* Node */}
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all duration-300 ${
+                  isCompleted ? 'bg-emerald-500' :
+                  isActive    ? 'bg-green-600 ring-4 ring-green-100' :
+                                'bg-gray-100'
+                }`}>
+                  {isCompleted ? (
+                    <CheckCircle2 className="w-4 h-4 text-white" />
+                  ) : isActive ? (
+                    <Loader2 className="w-4 h-4 text-white animate-spin" />
+                  ) : (
+                    <Icon className="w-4 h-4 text-gray-400" />
                   )}
                 </div>
-                
-                {/* Connector Arrow */}
-                {!isLast && (
-                  <div className="flex justify-center py-2">
-                    <div className={`
-                      w-1 h-8 rounded transition-all duration-500
-                      ${status === 'completed' ? 'bg-green-700' : 'bg-gray-300'}
-                    `} />
+                {/* Connector */}
+                {i < STEPS.length - 1 && (
+                  <div className={`w-0.5 flex-1 my-1 transition-colors duration-300 ${
+                    isCompleted ? 'bg-emerald-400' : 'bg-gray-200'
+                  }`} style={{ minHeight: '24px' }} />
+                )}
+              </div>
+
+              {/* Content */}
+              <div className={`pb-5 flex-1 transition-opacity duration-300 ${isPending ? 'opacity-40' : ''}`}>
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className={`text-sm font-semibold ${ isActive ? 'text-green-700' : isCompleted ? 'text-gray-700' : 'text-gray-500'}`}>
+                    {step.name}
+                  </span>
+                  <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                    isCompleted ? 'bg-emerald-50 text-emerald-700' :
+                    isActive    ? 'bg-green-50 text-green-600' :
+                                  'bg-gray-100 text-gray-400'
+                  }`}>{step.label}</span>
+                  {isActive && (
+                    <span className="text-xs text-green-600 font-medium">Running</span>
+                  )}
+                  {isCompleted && (
+                    <span className="text-xs text-emerald-600 font-medium">Done</span>
+                  )}
+                </div>
+                <p className={`text-xs ${isActive ? 'text-gray-600' : 'text-gray-400'}`}>{step.description}</p>
+
+                {/* Active shimmer bar */}
+                {isActive && (
+                  <div className="mt-2 h-1 rounded-full bg-green-100 overflow-hidden w-full">
+                    <div
+                      className="h-full bg-green-500 rounded-full"
+                      style={{
+                        width: '40%',
+                        animation: 'shimmer 1.5s ease-in-out infinite',
+                      }}
+                    />
                   </div>
                 )}
               </div>
-            );
-          })}
-        </div>
-        
-        {/* Current status text */}
-        <div className="mt-8 text-center bg-green-50 rounded-lg p-4 border border-green-200">
-          <p className="text-sm text-green-800 font-medium">
-            {currentStep || 'Initializing AI agents...'}
-          </p>
-          <p className="text-xs text-gray-600 mt-1">
-            This usually takes 30-60 seconds depending on transcript size
-          </p>
-        </div>
+            </div>
+          );
+        })}
       </div>
 
+      {/* Current step text */}
+      {currentStep && (
+        <div className="mt-2 rounded-xl bg-green-50 border border-green-100 px-4 py-2.5">
+          <p className="text-xs text-green-700 font-medium truncate">{currentStep}</p>
+        </div>
+      )}
+
       <style jsx>{`
-        @keyframes progress {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(0%); }
+        @keyframes shimmer {
+          0%   { transform: translateX(-100%); }
+          100% { transform: translateX(350%); }
         }
       `}</style>
     </div>
   );
 }
+
