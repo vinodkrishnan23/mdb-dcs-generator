@@ -82,10 +82,12 @@ export function TranscriptUploader({ accountId, userEmail, onUploadSuccess }: Tr
 
   return (
     <div
-      className={`relative border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
-        dragActive 
-          ? 'border-green-400 bg-green-50' 
-          : 'border-green-300 hover:border-green-400'
+      className={`relative border-2 border-dashed rounded-2xl p-8 text-center transition-all duration-200 ${
+        dragActive
+          ? 'border-green-500 bg-green-50 scale-[1.01]'
+          : isUploading
+          ? 'border-green-300 bg-green-50/50'
+          : 'border-gray-200 hover:border-green-400 hover:bg-gray-50'
       }`}
       onDragEnter={handleDrag}
       onDragLeave={handleDrag}
@@ -100,26 +102,29 @@ export function TranscriptUploader({ accountId, userEmail, onUploadSuccess }: Tr
         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
         disabled={isUploading}
       />
-      
-      <div className="space-y-4">
-        <div className="mx-auto w-12 h-12 text-green-500">
+
+      <div className="flex flex-col items-center gap-3">
+        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors ${
+          isUploading ? 'bg-green-100' : dragActive ? 'bg-green-100' : 'bg-gray-100'
+        }`}>
           {isUploading ? (
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
+            <div className="w-5 h-5 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
           ) : (
-            <Upload className="w-12 h-12" />
+            <Upload className={`w-5 h-5 ${dragActive ? 'text-green-600' : 'text-gray-400'}`} />
           )}
         </div>
-        
+
         <div>
-          <p className="text-lg font-medium text-green-800">
-            {isUploading ? 'Uploading...' : 'Upload transcript files'}
+          <p className={`text-sm font-semibold ${
+            isUploading ? 'text-green-700' : dragActive ? 'text-green-700' : 'text-gray-700'
+          }`}>
+            {isUploading ? 'Uploading…' : dragActive ? 'Drop to upload' : 'Drop files here or click to browse'}
           </p>
-          <p className="text-green-600">
-            Drag and drop <span className="font-medium">.txt</span> or <span className="font-medium">.vtt</span> files here, or click to select
-          </p>
-          <p className="text-xs text-green-500 mt-1">
-            VTT files are automatically parsed — timestamps stripped, speaker labels preserved
-          </p>
+          {!isUploading && (
+            <p className="text-xs text-gray-400 mt-1">
+              .txt and .vtt — VTT timestamps stripped, speaker labels preserved
+            </p>
+          )}
         </div>
       </div>
     </div>

@@ -58,17 +58,19 @@ export function DCSPreview({
 
   if (error) {
     return (
-      <div className="text-center py-8">
-        <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-4" />
-        <p className="text-red-700 font-medium mb-2">Generation Failed</p>
-        <p className="text-sm text-gray-600">{error}</p>
+      <div className="text-center py-12">
+        <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-3">
+          <AlertCircle className="w-6 h-6 text-red-500" />
+        </div>
+        <p className="text-sm font-semibold text-red-700 mb-1">Generation Failed</p>
+        <p className="text-xs text-gray-500">{error}</p>
       </div>
     );
   }
 
   if (status === 'PROCESSING') {
     return (
-      <div className="py-8">
+      <div className="py-4">
         <AgentFlowDiagram currentStep={progressStep} />
       </div>
     );
@@ -76,16 +78,19 @@ export function DCSPreview({
 
   if (status === 'COMPLETED' && dcsDataArray.length > 0) {
     return (
-      <div className="text-center py-8">
-        <FileText className="w-16 h-16 text-green-600 mx-auto mb-4" />
-        <p className="text-green-700 font-medium mb-4">
-          DCS Generation Complete!
-        </p>
+      <div className="flex flex-col items-center justify-center py-12 gap-4">
+        <div className="w-16 h-16 rounded-2xl bg-green-50 flex items-center justify-center">
+          <FileText className="w-8 h-8 text-green-600" />
+        </div>
+        <div className="text-center">
+          <p className="text-base font-semibold text-gray-900 mb-0.5">DCS Ready</p>
+          <p className="text-sm text-gray-500">Your Discovery Capture Sheet has been generated</p>
+        </div>
         <a
           href={`/dcs/${accountId}`}
-          className="inline-flex items-center px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors font-medium"
+          className="inline-flex items-center gap-2 px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold rounded-xl shadow-sm hover:shadow-md transition-all"
         >
-          <FileText className="w-5 h-5 mr-2" />
+          <FileText className="w-4 h-4" />
           View Full DCS
         </a>
       </div>
@@ -94,25 +99,26 @@ export function DCSPreview({
 
   if (dcsDataArray.length === 0) {
     return (
-      <div className="text-center py-8">
-        <Clock className="w-8 h-8 text-gray-400 mx-auto mb-4" />
-        <p className="text-gray-600">Upload transcripts and generate DCS to see results here</p>
+      <div className="flex flex-col items-center justify-center py-12 gap-3">
+        <div className="w-12 h-12 rounded-2xl bg-gray-50 flex items-center justify-center">
+          <Clock className="w-6 h-6 text-gray-300" />
+        </div>
+        <p className="text-sm text-gray-400 text-center">Upload transcripts and click Generate DCS to see results here</p>
       </div>
     );
   }
 
-  // If we have data but status is not COMPLETED, show the button anyway
   return (
-    <div className="text-center py-8">
-      <FileText className="w-16 h-16 text-green-600 mx-auto mb-4" />
-      <p className="text-green-700 font-medium mb-4">
-        DCS Available
-      </p>
+    <div className="flex flex-col items-center justify-center py-12 gap-4">
+      <div className="w-16 h-16 rounded-2xl bg-green-50 flex items-center justify-center">
+        <FileText className="w-8 h-8 text-green-600" />
+      </div>
+      <p className="text-sm font-semibold text-gray-900">DCS Available</p>
       <a
         href={`/dcs/${accountId}`}
-        className="inline-flex items-center px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors font-medium"
+        className="inline-flex items-center gap-2 px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold rounded-xl shadow-sm hover:shadow-md transition-all"
       >
-        <FileText className="w-5 h-5 mr-2" />
+        <FileText className="w-4 h-4" />
         View Full DCS
       </a>
     </div>
