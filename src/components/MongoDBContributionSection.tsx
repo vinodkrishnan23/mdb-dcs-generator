@@ -176,12 +176,7 @@ export function MongoDBContributionSection({
             <div className="space-y-3">
               {unvalidatedSuggestions.map((item, i) => (
                 <div key={i} className="bg-white border border-amber-200 rounded-lg p-3">
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <p className="text-sm font-medium text-gray-900">{item.suggestion}</p>
-                    <span className="text-xs text-amber-600 whitespace-nowrap flex-shrink-0">
-                      by {item.suggestedBy}
-                    </span>
-                  </div>
+                  <p className="text-sm font-medium text-gray-900 mb-1">{item.suggestion}</p>
                   <p className="text-xs text-gray-600">
                     <span className="font-medium">Follow-up needed:</span> {item.followUpNeeded}
                   </p>
@@ -206,12 +201,9 @@ export function MongoDBContributionSection({
                 >
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-gray-900">{item.contribution}</p>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <span className="text-xs text-gray-500">by {item.contributor}</span>
-                      <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">
-                        {item.type}
-                      </span>
-                    </div>
+                    <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded mt-1 inline-block">
+                      {item.type}
+                    </span>
                   </div>
                   <ReactionBadge reaction={item.customerReaction} />
                 </div>
@@ -235,12 +227,9 @@ export function MongoDBContributionSection({
                 >
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-gray-900">{item.message}</p>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <span className="text-xs text-gray-500">by {item.contributor}</span>
-                      <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded">
-                        {item.type}
-                      </span>
-                    </div>
+                    <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded mt-1 inline-block">
+                      {item.type}
+                    </span>
                   </div>
                   <ReactionBadge reaction={item.customerReaction} />
                 </div>
@@ -271,17 +260,8 @@ export function MongoDBContributionSection({
                       {item.effectiveness}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-600">
-                    <span className="text-gray-500">
-                      Asked by <span className="font-medium text-gray-700">{item.askedBy}</span>
-                      {item.askedByRole && (
-                        <span className="ml-1 px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
-                          {item.askedByRole}
-                        </span>
-                      )}
-                      {' — '}
-                    </span>
-                    <span className="italic">Customer: &ldquo;{item.customerResponse}&rdquo;</span>
+                  <p className="text-xs text-gray-600 italic">
+                    Customer: &ldquo;{item.customerResponse}&rdquo;
                   </p>
                 </div>
               ))}
