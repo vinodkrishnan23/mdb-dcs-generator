@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useTransition } from 'react';
+import { useState, useEffect, useTransition, useRef } from 'react';
 import { FileText, Search, X } from 'lucide-react';
 import { searchAccounts } from '@/app/actions';
 import { AccountCard } from '@/components/AccountCard';
@@ -23,18 +23,25 @@ export function AccountsDashboard({ initialAccounts, userEmail }: AccountsDashbo
   const [query, setQuery] = useState('');
   const [accounts, setAccounts] = useState<Account[]>(initialAccounts);
   const [isPending, startTransition] = useTransition();
+  const requestId = useRef(0);
 
-  // Sync if parent re-renders with new data (e.g. after delete revalidation)
+  // Sync back to full list when query is cleared or parent re-renders
   useEffect(() => {
     if (!query.trim()) setAccounts(initialAccounts);
   }, [initialAccounts, query]);
 
-  // Debounced search
+  // Debounced search — only fires for non-empty queries
   useEffect(() => {
+    if (!query.trim()) return;
+
+    const id = ++requestId.current;
     const timer = setTimeout(() => {
       startTransition(async () => {
         const results = await searchAccounts(query, userEmail);
-        setAccounts(results as Account[]);
+        // Discard if a newer request has since been issued
+        if (id === requestId.current) {
+          setAccounts(results as Account[]);
+        }
       });
     }, 300);
     return () => clearTimeout(timer);
