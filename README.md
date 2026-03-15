@@ -9,7 +9,7 @@ TigerLens is an enterprise-grade Next.js application that transforms raw sales c
 ## 🎯 Key Features
 
 ### Core Capabilities
-- 🤖 **Multi-Agent AI Pipeline**: Router → Slicer → 3 Specialized Extraction Agents
+- 🤖 **Multi-Agent AI Pipeline**: Router → Slicer → 3 Extraction Agents + MongoDB Contribution Analyst
 - 📊 **Real-Time Processing Visualization**: Live agent workflow diagram with progress tracking
 - 🔍 **Intelligent Workload Detection**: Automatically identifies distinct sales opportunities from transcripts
 - 📝 **Comprehensive DCS Output**: Technical architecture, commercial details, and strategic insights
@@ -39,40 +39,57 @@ TigerLens is an enterprise-grade Next.js application that transforms raw sales c
 │                    TRANSCRIPT INPUT                          │
 └────────────────────┬────────────────────────────────────────┘
                      │
-                     ▼
-           ┌─────────────────────┐
-           │   ROUTER AGENT      │ ← Identifies distinct workloads
-           │  (Gemini 2.5 Pro)   │   Filters by confidence score
-           └──────────┬──────────┘
-                      │
-                      ▼
-           ┌─────────────────────┐
-           │   SLICER AGENT      │ ← Filters context per workload
-           │  (Gemini 2.5 Pro)   │   Removes irrelevant data
-           └──────────┬──────────┘
-                      │
-        ┌─────────────┴─────────────┐
-        │                           │
-        ▼                           ▼
-┌──────────────┐           ┌──────────────┐
-│  TECHNICAL   │           │  COMMERCIAL  │
-│    AGENT     │           │    AGENT     │
-│ Architecture │           │ Stakeholders │
-│ Pain Points  │           │   Timeline   │
-│ Solution     │           │   Partners   │
-└──────┬───────┘           └──────┬───────┘
-       │                          │
-       │      ┌──────────────┐    │
-       └─────►│  STRATEGY    │◄───┘
-              │    AGENT     │
-              │ Sales Motion │
-              │  3 Whys      │
-              │ Gap Analysis │
-              └──────┬───────┘
+              ╔══════▼══════╗
+              ║   PASS 1    ║
+              ╚══════╤══════╝
                      │
-                     ▼
+           ┌─────────▼─────────┐
+           │   ROUTER AGENT    │ ← Customer workloads only
+           │  (Gemini 2.5 Pro) │   Filters MongoDB suggestions
+           └─────────┬─────────┘
+                     │  (per workload, confidence > 0.6)
+              ╔══════▼══════╗
+              ║   PASS 2    ║  (parallel per workload)
+              ╚══════╤══════╝
+                     │
+           ┌─────────▼─────────┐
+           │   SLICER AGENT    │ ← Two-stage filter:
+           │  (Gemini 2.5 Pro) │   1) Remove MongoDB dialogue
+           └─────────┬─────────┘   2) Filter by workload
+                     │  (sanitized customer-only context)
+        ┌────────────┴────────────┐
+        │                        │
+        ▼                        ▼
+┌──────────────┐        ┌──────────────┐
+│  TECHNICAL   │        │  COMMERCIAL  │
+│    AGENT     │        │    AGENT     │
+│ Architecture │        │ Stakeholders │
+│ Pain Points  │        │  (Customer   │
+│ Future State │        │   only)      │
+└──────┬───────┘        └──────┬───────┘
+       │                       │
+       │     ┌─────────────┐   │
+       └────►│   STRATEGY  │◄──┘
+             │    AGENT    │
+             │ Sales Motion│
+             │   3 Whys    │
+             │ Gap Analysis│
+             └──────┬──────┘
+                    │
+              ╔═════▼═════╗
+              ║  PASS 3   ║  (runs ONCE for full transcript)
+              ╚═════╤═════╝
+                    │
+           ┌────────▼──────────┐
+           │  MONGODB CONTRIB  │ ← Full raw transcript
+           │  ANALYST AGENT    │   Team-level, no individual
+           │  (Gemini 2.5 Pro) │   attribution
+           └────────┬──────────┘
+                    │  (same result shared across all workloads)
+                    ▼
            ┌─────────────────────┐
            │   STRUCTURED DCS    │
+           │  (per workload tab) │
            └─────────────────────┘
 ```
 
@@ -118,19 +135,22 @@ dcs-generator/
 │   │
 │   ├── components/               # React Components
 │   │   ├── AccountList.tsx       # Dashboard account cards
-│   │   ├── CreateAccountForm.tsx # New account form
-│   │   ├── TranscriptUpload.tsx  # Multi-file upload
-│   │   ├── DCSGenerator.tsx      # Generate/Reset buttons
-│   │   ├── DCSPreview.tsx        # Status polling & display logic
-│   │   ├── AgentFlowDiagram.tsx  # Real-time workflow visualization
-│   │   ├── DCSDisplay.tsx        # Legacy DCS table view
-│   │   ├── DCSDisplayNew.tsx     # Modern DCS with 3 Whys
+   │   ├── AccountCard.tsx       # Individual account card
+   │   ├── CreateAccountForm.tsx # New account form
+   │   ├── TranscriptUploader.tsx # Multi-file upload
+   │   ├── DCSGenerator.tsx      # Generate/Reset buttons
+   │   ├── DCSPreview.tsx        # Status polling & display logic
+   │   ├── AgentFlowDiagram.tsx  # Real-time workflow visualization
+   │   ├── DCSDisplay.tsx        # Legacy DCS table view
+   │   ├── DCSDisplayNew.tsx     # Modern DCS with 3 Whys + Agent sections
+   │   ├── MongoDBContributionSection.tsx  # MongoDB team contribution panel
+   │   ├── ShareAccountModal.tsx # Account sharing dialog
 │   │   └── UserMenu.tsx          # User profile dropdown
 │   │
 │   ├── lib/                      # Utilities
 │   │   ├── auth.ts               # Authentication helpers
 │   │   ├── db.ts                 # MongoDB connection with caching
-│   │   ├── schemas.ts            # Zod schemas (Router, Technical, Commercial, Strategy)
+   │   ├── schemas.ts            # Zod schemas (Router, Technical, Commercial, Strategy, MongoDBContribution)
 │   │   └── pdf-export.ts         # PDF generation utility
 │   │
 │   └── models/                   # Mongoose Models
