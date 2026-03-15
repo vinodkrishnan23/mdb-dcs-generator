@@ -117,7 +117,7 @@ export function AccountPageClient({ params, user }: AccountPageClientProps) {
               <h2 className="text-xl font-semibold text-green-800 mb-4">
                 Upload Transcripts
               </h2>
-              <TranscriptUploader accountId={account._id} userEmail={user.email} />
+              <TranscriptUploader accountId={account._id} userEmail={user.email} onUploadSuccess={loadAccount} />
             </div>
 
             <div className="bg-white rounded-lg shadow p-6">

@@ -581,6 +581,88 @@ export async function getAccounts(userEmail: string) {
   }
 }
 
+export async function deleteAccount(accountId: string, userEmail: string) {
+  try {
+    await dbConnect();
+
+    const account = await Account.findById(accountId);
+    if (!account) return { success: false, error: 'Account not found' };
+    if (account.userEmail !== userEmail) return { success: false, error: 'Only the owner can delete this account' };
+
+    // Delete all transcripts linked to this account
+    if (account.transcriptIds?.length > 0) {
+      await Transcript.deleteMany({ _id: { $in: account.transcriptIds } });
+    }
+
+    // Delete the account itself
+    await Account.findByIdAndDelete(accountId);
+
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting account:', error);
+    return { success: false, error: 'Failed to delete account' };
+  }
+}
+
+export async function searchAccounts(query: string, userEmail: string) {
+  try {
+    await dbConnect();
+
+    // Empty query — return all accounts (same as getAccounts)
+    if (!query.trim()) return getAccounts(userEmail);
+
+    let results: any[] = [];
+
+    try {
+      // Atlas Search: autocomplete (edgeGram) on name field — avoids false fuzzy matches
+      results = await Account.aggregate([
+        {
+          $search: {
+            index: 'accounts_search',
+            autocomplete: {
+              query: query,
+              path: 'name',
+              tokenOrder: 'sequential'
+            }
+          }
+        },
+        {
+          // Access control: owned OR shared
+          $match: {
+            $or: [
+              { userEmail: userEmail },
+              { sharedWith: userEmail }
+            ]
+          }
+        },
+        { $limit: 20 }
+      ]);
+    } catch {
+      // Atlas Search index not yet provisioned — fall back to regex
+      console.warn('Atlas Search unavailable, falling back to regex search');
+      results = await Account.find({
+        $and: [
+          { $or: [{ userEmail }, { sharedWith: userEmail }] },
+          { name: { $regex: query, $options: 'i' } }
+        ]
+      }).limit(20);
+    }
+
+    return results.map((account: any) => ({
+      _id: account._id.toString(),
+      name: account.name,
+      status: account.status,
+      transcriptCount: account.transcriptIds?.length || 0,
+      createdAt: account.createdAt,
+      isOwner: account.userEmail === userEmail
+    }));
+  } catch (error) {
+    console.error('Error searching accounts:', error);
+    return [];
+  }
+}
+
 export async function getAccountDetails(accountId: string, userEmail: string) {
   try {
     await dbConnect();

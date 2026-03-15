@@ -8,9 +8,10 @@ import { Upload, File } from 'lucide-react';
 interface TranscriptUploaderProps {
   accountId: string;
   userEmail: string;
+  onUploadSuccess?: () => void;
 }
 
-export function TranscriptUploader({ accountId, userEmail }: TranscriptUploaderProps) {
+export function TranscriptUploader({ accountId, userEmail, onUploadSuccess }: TranscriptUploaderProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
 
@@ -69,7 +70,7 @@ export function TranscriptUploader({ accountId, userEmail }: TranscriptUploaderP
       if (failed.length > 0) {
         alert(`Failed to upload ${failed.length} file(s): ${failed.map(f => f.fileName).join(', ')}`);
       } else {
-        alert(`Successfully uploaded ${results.length} file(s)`);
+        onUploadSuccess?.();
       }
     } catch (error) {
       console.error('Error uploading files:', error);

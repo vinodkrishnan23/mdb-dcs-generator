@@ -94,7 +94,25 @@
    - Removes email from `sharedWith` array
    - Revalidates paths
 
-3. **getAccounts(userEmail)**
+3. **deleteAccount(accountId, userEmail)**
+   - Validates that current user is the owner (`account.userEmail === userEmail`)
+   - Hard-deletes all Transcript documents linked to the account (`Transcript.deleteMany`)
+   - Hard-deletes the Account document
+   - Revalidates `/` path
+
+4. **searchAccounts(query, userEmail)**
+   - If query is empty → falls back to `getAccounts(userEmail)`
+   - Uses MongoDB Atlas Search aggregation pipeline:
+     ```
+     $search (index: accounts_search, operator: autocomplete, path: name)
+     → $match  (access control: userEmail or sharedWith)
+     → $limit  (20 results)
+     ```
+   - Uses `autocomplete` operator with `nGram` tokenization — indexes all substrings so "nimbus" matches "DataNimbus", "datanimbus", "nimbus inc", etc.
+   - Falls back to `$regex` with `$options:'i'` if Atlas Search index is not yet provisioned
+   - Returns same shape as `getAccounts()` (compatible with AccountCard)
+
+5. **shareAccount(accountId, emailToShareWith, currentUserEmail)**
    - Returns accounts where `userEmail === account.userEmail` (owned accounts)
    - **ALSO** returns accounts where `userEmail` is in `account.sharedWith` array (shared accounts)
    - Each account includes `isOwner` flag for UI rendering
@@ -112,9 +130,19 @@
    - Share/Unshare actions with error handling
 
 2. **Account List (Dashboard)**
+   - **Search bar** at top of the list powered by Atlas Search index:
+     - Fuzzy match (maxEdits: 1) on account `name` field
+     - Contains/substring match (nGram tokenization) — matches anywhere in the account name, not just prefix
+     - Falls back to `getAccounts()` (all accounts) when query is empty
+     - Debounced input — calls `searchAccounts(query, userEmail)` server action
    - Owned accounts: Full card with standard styling
    - Shared accounts: Badge showing "Shared" + owner cannot be deleted
    - Both types clickable to view/edit
+   - **Delete button** on bottom-right of each card (owner only):
+     - Trash icon + "Delete" label, visible only when `isOwner !== false`
+     - Opens a full modal overlay: "Are you sure?" confirmation with account name
+     - Calls `deleteAccount(accountId, userEmail)` which hard-deletes the Account + all related Transcripts
+     - Card removed from list immediately on success (optimistic UI)
 
 3. **Account Detail Page**
    - Owner sees: Share button in header
