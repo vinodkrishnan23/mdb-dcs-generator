@@ -265,9 +265,8 @@ ${combinedText}`
       // ---------------------------------------------
       // STEP 2b: THE SCOPED EXTRACTION CHAIN
       // ---------------------------------------------
-      // Run 4 agents in parallel for this workload
-      // Agents 1-3 use sanitizedContext (customer-only), Agent 4 uses full combinedText (MongoDB team dialogue)
-      const [technicalResult, commercialResult, strategyResult, mongodbContributionResult] = await Promise.all([
+      // Run 3 agents in parallel for this workload using sanitizedContext (customer-only)
+      const [technicalResult, commercialResult, strategyResult] = await Promise.all([
         // Agent 1: Technical Architect
         generateObject({
           model: googleAI('gemini-2.5-pro'),
@@ -413,56 +412,6 @@ TRANSCRIPT:
 ${sanitizedContext}`
         }),
 
-        // Agent 4: MongoDB Contribution Analyst
-        // NOTE: Uses full combinedText (NOT sanitizedContext) — we WANT to see what MongoDB team said
-        generateObject({
-          model: googleAI('gemini-2.5-pro'),
-          schema: mongodbContributionSchema,
-          experimental_telemetry: { isEnabled: true },
-          prompt: `You are a Conversation Analyst. Your job is to summarize ONLY what the MongoDB team (Sales Rep, Solutions Architect, AE) said and contributed during this conversation about the workload: "${opp.workloadName}".
-
-CRITICAL RULES:
-- ONLY extract dialogue and contributions FROM MongoDB employees
-- DO NOT include customer statements in this section
-- MongoDB employees can be identified by: "we at MongoDB", "our Atlas product", "I work for MongoDB", "MongoDB can", or being labeled as "MongoDB Rep/SA/AE/CSM"
-- If names are not mentioned, use roles (e.g. "MongoDB Sales Rep", "MongoDB SA")
-- Be objective — capture both technical suggestions AND sales messaging
-
-A. MONGODB TEAM MEMBERS
-- Who from MongoDB attended? (Names and roles if mentioned)
-
-B. TECHNICAL CONTRIBUTIONS
-- What technical solutions/features did the SA suggest for this workload?
-- What architectural recommendations were made?
-- What demos, POCs, or technical next steps did they propose?
-- For EACH contribution, note if the customer validated/confirmed it or not
-
-C. SALES MESSAGING
-- What value propositions did the Sales Rep present?
-- What competitive positioning was used?
-- What pricing/commercial points were raised?
-- For EACH message, note if the customer validated/confirmed it or not
-
-D. QUESTIONS ASKED BY MONGODB TEAM
-- What discovery questions did the MongoDB team ask?
-- How did the customer respond?
-- Were the questions effective in uncovering customer pain points?
-
-E. UNVALIDATED SUGGESTIONS
-- List specific features/solutions suggested by MongoDB that the customer did NOT confirm or validate
-- Include what follow-up is needed to validate each suggestion
-
-F. OVERALL EFFECTIVENESS
-- Was the conversation Customer-Centric, Balanced, or MongoDB-Centric?
-- Did the MongoDB team successfully uncover key customer pain points?
-- Provide a 2-3 sentence assessment of discovery quality
-- List specific areas for improvement
-
-WORKLOAD CONTEXT: ${opp.contextDescription}
-
-FULL TRANSCRIPT (find MongoDB team contributions here):
-${combinedText}`
-        })
       ]);
 
       // Merge into DCS object and return with usage
@@ -471,8 +420,7 @@ ${combinedText}`
         workloadName: opp.workloadName,
         technical: technicalResult.object,
         commercial: commercialResult.object,
-        strategy: strategyResult.object,
-        mongodbContribution: mongodbContributionResult.object
+        strategy: strategyResult.object
       };
 
       console.log(`✓ Completed: ${opp.workloadName}`);
@@ -483,18 +431,15 @@ ${combinedText}`
           inputTokens: (slicerResult.usage?.inputTokens || 0) + 
                       (technicalResult.usage?.inputTokens || 0) + 
                       (commercialResult.usage?.inputTokens || 0) + 
-                      (strategyResult.usage?.inputTokens || 0) +
-                      (mongodbContributionResult.usage?.inputTokens || 0),
+                      (strategyResult.usage?.inputTokens || 0),
           outputTokens: (slicerResult.usage?.outputTokens || 0) + 
                        (technicalResult.usage?.outputTokens || 0) + 
                        (commercialResult.usage?.outputTokens || 0) + 
-                       (strategyResult.usage?.outputTokens || 0) +
-                       (mongodbContributionResult.usage?.outputTokens || 0),
+                       (strategyResult.usage?.outputTokens || 0),
           totalTokens: (slicerResult.usage?.totalTokens || 0) + 
                       (technicalResult.usage?.totalTokens || 0) + 
                       (commercialResult.usage?.totalTokens || 0) + 
-                      (strategyResult.usage?.totalTokens || 0) +
-                      (mongodbContributionResult.usage?.totalTokens || 0)
+                      (strategyResult.usage?.totalTokens || 0)
         }
       };
     });
@@ -509,6 +454,65 @@ ${combinedText}`
       totalInputTokens += result.usage.inputTokens;
       totalOutputTokens += result.usage.outputTokens;
       totalTokens += result.usage.totalTokens;
+    }
+
+    // -------------------------------------------------
+    // PASS 3: MongoDB Team Contribution (runs ONCE for the full transcript, shared across all workloads)
+    // -------------------------------------------------
+    console.log('\n=== PASS 3: MongoDB Contribution Analyst (once for full transcript) ===');
+    const mongodbContributionResult = await generateObject({
+      model: googleAI('gemini-2.5-pro'),
+      schema: mongodbContributionSchema,
+      experimental_telemetry: { isEnabled: true },
+      prompt: `You are a Conversation Analyst. Summarize what the MongoDB team (Sales Rep, Solutions Architect, AE, CSM) contributed across the ENTIRE conversation.
+
+CRITICAL RULES:
+- ONLY extract dialogue and contributions FROM MongoDB employees. DO NOT include customer statements.
+- MongoDB employees can be identified by: "we at MongoDB", "our Atlas product", "I work for MongoDB", or being labeled as "MongoDB Rep/SA/AE/CSM"
+- Do NOT attribute contributions to specific individuals — treat the MongoDB team as a collective unit
+- If names are not mentioned, use roles (e.g. "MongoDB SA", "MongoDB Sales Rep")
+
+A. MONGODB TEAM MEMBERS
+- List who attended from MongoDB (names + roles if mentioned in the transcript)
+
+B. TECHNICAL CONTRIBUTIONS (as a team — no individual attribution)
+- What technical solutions/features did the MongoDB team suggest?
+- What architectural recommendations were made?
+- What demos, POCs, or technical next steps were proposed?
+- For EACH contribution, note if the customer validated/confirmed it or not
+
+C. SALES MESSAGING (as a team — no individual attribution)
+- What value propositions were presented?
+- What competitive positioning was used?
+- What pricing/commercial points were raised?
+- For EACH message, note if the customer validated/confirmed it or not
+
+D. QUESTIONS ASKED BY MONGODB TEAM (as a team — no individual attribution)
+- What discovery questions did the MongoDB team ask collectively?
+- Note the customer's response for each
+- Rate effectiveness: did each question uncover useful information?
+
+E. UNVALIDATED SUGGESTIONS
+- List features/solutions suggested by the MongoDB team that the customer did NOT confirm or validate
+- Include what follow-up is needed to validate each
+
+F. OVERALL EFFECTIVENESS
+- Was the conversation Customer-Centric, Balanced, or MongoDB-Centric?
+- Did the MongoDB team successfully uncover key customer pain points?
+- Provide a 2-3 sentence assessment of discovery quality
+- List specific areas for improvement
+
+FULL TRANSCRIPT:
+${combinedText}`
+    });
+
+    totalInputTokens += mongodbContributionResult.usage?.inputTokens || 0;
+    totalOutputTokens += mongodbContributionResult.usage?.outputTokens || 0;
+    totalTokens += mongodbContributionResult.usage?.totalTokens || 0;
+
+    // Attach the same mongodbContribution to every workload
+    for (const dcsData of dcsArray) {
+      dcsData.mongodbContribution = mongodbContributionResult.object;
     }
 
     console.log(`\n=== Generation Complete: ${dcsArray.length} workloads ===`);
@@ -573,6 +577,88 @@ export async function getAccounts(userEmail: string) {
     }));
   } catch (error) {
     console.error('Error fetching accounts:', error);
+    return [];
+  }
+}
+
+export async function deleteAccount(accountId: string, userEmail: string) {
+  try {
+    await dbConnect();
+
+    const account = await Account.findById(accountId);
+    if (!account) return { success: false, error: 'Account not found' };
+    if (account.userEmail !== userEmail) return { success: false, error: 'Only the owner can delete this account' };
+
+    // Delete all transcripts linked to this account
+    if (account.transcriptIds?.length > 0) {
+      await Transcript.deleteMany({ _id: { $in: account.transcriptIds } });
+    }
+
+    // Delete the account itself
+    await Account.findByIdAndDelete(accountId);
+
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting account:', error);
+    return { success: false, error: 'Failed to delete account' };
+  }
+}
+
+export async function searchAccounts(query: string, userEmail: string) {
+  try {
+    await dbConnect();
+
+    // Empty query — return all accounts (same as getAccounts)
+    if (!query.trim()) return getAccounts(userEmail);
+
+    let results: any[] = [];
+
+    try {
+      // Atlas Search: autocomplete (edgeGram) on name field — avoids false fuzzy matches
+      results = await Account.aggregate([
+        {
+          $search: {
+            index: 'accounts_search',
+            autocomplete: {
+              query: query,
+              path: 'name',
+              tokenOrder: 'sequential'
+            }
+          }
+        },
+        {
+          // Access control: owned OR shared
+          $match: {
+            $or: [
+              { userEmail: userEmail },
+              { sharedWith: userEmail }
+            ]
+          }
+        },
+        { $limit: 20 }
+      ]);
+    } catch {
+      // Atlas Search index not yet provisioned — fall back to regex
+      console.warn('Atlas Search unavailable, falling back to regex search');
+      results = await Account.find({
+        $and: [
+          { $or: [{ userEmail }, { sharedWith: userEmail }] },
+          { name: { $regex: query, $options: 'i' } }
+        ]
+      }).limit(20);
+    }
+
+    return results.map((account: any) => ({
+      _id: account._id.toString(),
+      name: account.name,
+      status: account.status,
+      transcriptCount: account.transcriptIds?.length || 0,
+      createdAt: account.createdAt,
+      isOwner: account.userEmail === userEmail
+    }));
+  } catch (error) {
+    console.error('Error searching accounts:', error);
     return [];
   }
 }

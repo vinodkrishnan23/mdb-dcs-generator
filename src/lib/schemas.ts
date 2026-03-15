@@ -140,29 +140,25 @@ export const mongodbContributionSchema = z.object({
   })).describe("MongoDB team members who attended the call"),
 
   technicalContributions: z.array(z.object({
-    contribution: z.string().describe("Technical suggestion or recommendation made by MongoDB SA"),
-    contributor: z.string().describe("Which MongoDB team member made this contribution"),
+    contribution: z.string().describe("Technical suggestion or recommendation made by the MongoDB team"),
     type: z.enum(['Architecture', 'Feature Suggestion', 'Demo', 'PoC', 'Migration', 'Other']),
     customerReaction: z.enum(['Validated', 'Not Validated', 'Rejected', 'Unknown']).describe("Did the customer confirm interest?")
-  })).describe("Technical contributions from MongoDB SA/SE"),
+  })).describe("Technical contributions from MongoDB team"),
 
   salesMessaging: z.array(z.object({
-    message: z.string().describe("Value proposition or sales point raised"),
-    contributor: z.string().describe("Which MongoDB team member said this"),
+    message: z.string().describe("Value proposition or sales point raised by the MongoDB team"),
     type: z.enum(['Value Proposition', 'Competitive Positioning', 'Pricing', 'Reference', 'Other']),
     customerReaction: z.enum(['Validated', 'Not Validated', 'Rejected', 'Unknown'])
   })).describe("Sales messaging used by MongoDB team"),
 
   questionsAsked: z.array(z.object({
-    question: z.string().describe("Discovery question asked by MongoDB team"),
-    askedBy: z.string().describe("Which MongoDB team member asked this"),
+    question: z.string().describe("Exact or close paraphrase of the discovery question asked by the MongoDB team"),
     effectiveness: z.enum(['Effective', 'Partially Effective', 'Ineffective']).describe("Did it uncover useful customer information?"),
     customerResponse: z.string().describe("Brief summary of how customer responded")
-  })).describe("Discovery questions asked by MongoDB team"),
+  })).describe("Discovery questions asked by the MongoDB team"),
 
   unvalidatedSuggestions: z.array(z.object({
     suggestion: z.string().describe("Feature or solution suggested by MongoDB but NOT confirmed by customer"),
-    suggestedBy: z.string().describe("Which MongoDB team member suggested this"),
     followUpNeeded: z.string().describe("What follow-up is needed to validate this suggestion")
   })).describe("MongoDB suggestions that customer did not validate or confirm"),
 

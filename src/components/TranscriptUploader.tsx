@@ -2,14 +2,16 @@
 
 import { useState } from 'react';
 import { uploadTranscript } from '@/app/actions';
+import { parseVTT } from '@/lib/vtt-parser';
 import { Upload, File } from 'lucide-react';
 
 interface TranscriptUploaderProps {
   accountId: string;
   userEmail: string;
+  onUploadSuccess?: () => void;
 }
 
-export function TranscriptUploader({ accountId, userEmail }: TranscriptUploaderProps) {
+export function TranscriptUploader({ accountId, userEmail, onUploadSuccess }: TranscriptUploaderProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
 
@@ -45,12 +47,19 @@ export function TranscriptUploader({ accountId, userEmail }: TranscriptUploaderP
     
     try {
       const uploadPromises = Array.from(files).map(async (file) => {
-        if (!file.name.endsWith('.txt')) {
-          console.warn(`Skipping ${file.name} - not a .txt file`);
-          return { success: false, fileName: file.name, error: 'Not a .txt file' };
+        const isTxt = file.name.endsWith('.txt');
+        const isVtt = file.name.endsWith('.vtt');
+
+        if (!isTxt && !isVtt) {
+          console.warn(`Skipping ${file.name} - only .txt and .vtt files are supported`);
+          return { success: false, fileName: file.name, error: 'Only .txt and .vtt files are supported' };
         }
 
-        const text = await file.text();
+        const rawText = await file.text();
+        // VTT: strip timestamps/sequence numbers, convert <v Speaker> tags to "Speaker: text"
+        // TXT: pass through as-is
+        const text = isVtt ? parseVTT(rawText) : rawText;
+
         const result = await uploadTranscript(accountId, text, file.name, userEmail);
         return { ...result, fileName: file.name };
       });
@@ -61,7 +70,7 @@ export function TranscriptUploader({ accountId, userEmail }: TranscriptUploaderP
       if (failed.length > 0) {
         alert(`Failed to upload ${failed.length} file(s): ${failed.map(f => f.fileName).join(', ')}`);
       } else {
-        alert(`Successfully uploaded ${results.length} file(s)`);
+        onUploadSuccess?.();
       }
     } catch (error) {
       console.error('Error uploading files:', error);
@@ -85,7 +94,7 @@ export function TranscriptUploader({ accountId, userEmail }: TranscriptUploaderP
     >
       <input
         type="file"
-        accept=".txt"
+        accept=".txt,.vtt"
         multiple
         onChange={handleChange}
         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
@@ -106,7 +115,10 @@ export function TranscriptUploader({ accountId, userEmail }: TranscriptUploaderP
             {isUploading ? 'Uploading...' : 'Upload transcript files'}
           </p>
           <p className="text-green-600">
-            Drag and drop .txt files here, or click to select multiple files
+            Drag and drop <span className="font-medium">.txt</span> or <span className="font-medium">.vtt</span> files here, or click to select
+          </p>
+          <p className="text-xs text-green-500 mt-1">
+            VTT files are automatically parsed — timestamps stripped, speaker labels preserved
           </p>
         </div>
       </div>
