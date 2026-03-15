@@ -377,6 +377,36 @@ Session-based authentication using HTTP-only cookies:
 - **Value Drivers**: Compete/Revenue, Save Money, Reduce Risk, Dev Velocity
 - **3 Whys Framework**: Status (FOUND/PARTIAL/MISSING) with details
 - **Gap Analysis**: Contextual discovery questions for next call
+- **Next Steps**: 3–7 actionable items grouped by category (Technical, Commercial, Enablement, Qualification)
+
+### MongoDB Contribution Analyst (Agent 4)
+**Purpose**: Summarise what the MongoDB team contributed to the conversation — runs **once per transcript** (Pass 3), result shared across all workloads
+
+**Input**: Full raw `combinedText` (NOT sanitizedContext — this agent specifically needs MongoDB team dialogue)
+
+**Output**: Single `mongodbContribution` object attached to every workload in `dcsData`
+
+**Schema**: `mongodbContributionSchema` (Zod)
+
+**Key design decisions**:
+- Runs outside the per-workload loop — one LLM call regardless of how many workloads were identified
+- No individual attribution: contributions, messaging, and questions are team-level only
+- `teamMembers` (names + roles) is the only section that identifies individuals
+
+**Extracts**:
+| Section | Description |
+|---------|-------------|
+| `teamMembers` | Names and roles of MongoDB attendees |
+| `technicalContributions` | SA suggestions, architecture recommendations, PoC proposals + customer reaction |
+| `salesMessaging` | Value props, competitive positioning, pricing points + customer reaction |
+| `questionsAsked` | Discovery questions asked collectively + effectiveness rating + customer response |
+| `unvalidatedSuggestions` | Features/solutions suggested but NOT confirmed by customer + follow-up needed |
+| `overallEffectiveness` | Conversation style (Customer-Centric / Balanced / MongoDB-Centric), pain points uncovered, summary, improvement areas |
+
+**UI Component**: `src/components/MongoDBContributionSection.tsx`
+- Renders as the last section in the DCS display (after Next Steps)
+- Amber highlight for unvalidated suggestions
+- Reaction badges: Validated / Not Validated / Rejected / Unknown
 
 ---
 

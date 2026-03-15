@@ -275,10 +275,59 @@ Run the **3-Agent Chain** (Technical, Commercial, Strategy) in parallel using th
 > - **Timeline:** Associate each action with a suggested timeframe (e.g., 'Week 1', 'Before PoC', 'Q1 2026')
 > - **Owner:** Suggest who should drive each action (Sales Rep, SE, Account Executive, Partner)"
 
+#### Agent 4: The MongoDB Contribution Analyst (Pass 3 — runs ONCE per transcript)
+**Important:** This agent runs **after** the per-workload loop completes, using the **full raw transcript** (not the sanitized context). Its output is identical across all workloads for the same transcript.
+
+**Focus:** What did the MongoDB team contribute to the conversation — as a collective, with no individual attribution.
+
+**Key Design Decisions:**
+- Uses `combinedText` (full transcript), not `sanitizedContext`, because we specifically want MongoDB dialogue
+- No individual attribution (no "by Santhosh" or "by Vinod") — contributions are team-level
+- `teamMembers` (names + roles) is the only section that identifies individuals
+
+**System Prompt:**
+> "You are a Conversation Analyst. Summarize what the MongoDB team (Sales Rep, Solutions Architect, AE, CSM) contributed across the entire conversation.
+>
+> CRITICAL RULES:
+> - ONLY extract dialogue and contributions FROM MongoDB employees. DO NOT include customer statements.
+> - Do NOT attribute contributions to specific individuals — treat the MongoDB team as a collective unit.
+>
+> **A. MONGODB TEAM MEMBERS**
+> - List who attended from MongoDB (names + roles if mentioned)
+>
+> **B. TECHNICAL CONTRIBUTIONS (team-level, no individual attribution)**
+> - What solutions/features did the MongoDB team suggest?
+> - What architectural recommendations were made?
+> - What demos, POCs, or technical next steps were proposed?
+> - For EACH: note if the customer validated/confirmed it
+>
+> **C. SALES MESSAGING (team-level, no individual attribution)**
+> - What value propositions were presented?
+> - What competitive positioning was used?
+> - What pricing/commercial points were raised?
+> - For EACH: note if the customer validated/confirmed it
+>
+> **D. QUESTIONS ASKED (team-level, no individual attribution)**
+> - What discovery questions did the MongoDB team ask collectively?
+> - Note the customer's response and rate effectiveness
+>
+> **E. UNVALIDATED SUGGESTIONS**
+> - Features/solutions suggested by MongoDB that the customer did NOT confirm
+> - Include what follow-up is needed
+>
+> **F. OVERALL EFFECTIVENESS**
+> - Was the conversation Customer-Centric, Balanced, or MongoDB-Centric?
+> - Did the team uncover key pain points?
+> - 2-3 sentence assessment + specific improvement areas"
+
+**Schema:** `mongodbContributionSchema`
+
 **Aggregation:**
-- Wait for all Promises to resolve.
-- Construct the final array: `[{ workloadId, workloadName, ...tech, ...comm, ...strat }, ...]`
-- Save to `Account.dcsData`.
+- Pass 2: Wait for all per-workload Promises to resolve.
+- Construct per-workload array: `[{ workloadId, workloadName, ...tech, ...comm, ...strat }, ...]`
+- Pass 3: Run Agent 4 once using `combinedText`.
+- Attach the same `mongodbContribution` object to every item in the array.
+- Save complete array to `Account.dcsData`.
 
 ---
 
@@ -469,6 +518,22 @@ Left Col: Upload component.
   - Display owner and timeline for each action
   - Use CheckSquare or ListTodo icons from lucide-react
   - Consider sortable/filterable view for larger lists
+
+**Section: MongoDB Team Contribution** *(last section, same content for all workload tabs)*
+- Rendered using `MongoDBContributionSection` component (`src/components/MongoDBContributionSection.tsx`)
+- This section is **identical across all workload tabs** — it reflects the MongoDB team's contribution to the full conversation, not a specific workload
+- Visual style: green (`border-green-600`) header to distinguish it from customer data sections
+- Sub-sections rendered:
+  - **Overall Assessment banner** — coloured by conversation style:
+    - Green = Customer-Centric
+    - Blue = Balanced  
+    - Orange = MongoDB-Centric
+  - **MongoDB Team Members** — names and roles (only section with individual identification)
+  - **Suggestions NOT Validated by Customer** — amber highlight, shows follow-up needed per suggestion
+  - **Technical Contributions** — team-level, each item has type badge + customer reaction badge (Validated / Not Validated / Rejected / Unknown)
+  - **Sales Messaging Used** — team-level, each item has type badge + customer reaction badge
+  - **Discovery Questions Asked** — team-level, each item has effectiveness rating + customer response
+- **Design principle:** No individual attribution ("by Vinod", "by Santhosh") anywhere in contributions, messaging, or questions — all items are treated as team output
 
 Execute this plan. Start by generating the Mongoose models.
 
