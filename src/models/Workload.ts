@@ -20,7 +20,8 @@ export interface IWorkload extends Document {
   commercial: any;
   strategy: any;
   mongodbContribution: any;
-  flaggedByUsers: string[];  // emails of users who flagged this workload as mentioned in calls
+  flaggedByUsers: string[];  // emails of users who flagged this workload as a MongoDB employee example
+  confirmedGenuineByUsers: string[];  // emails of users who confirmed this workload as a genuine customer workload
   createdAt: Date;
   updatedAt: Date;
 }
@@ -45,6 +46,7 @@ const WorkloadSchema: Schema = new Schema(
     strategy: { type: Schema.Types.Mixed },
     mongodbContribution: { type: Schema.Types.Mixed },
     flaggedByUsers: { type: [String], default: [] },
+    confirmedGenuineByUsers: { type: [String], default: [] },
   },
   { timestamps: true }
 );
