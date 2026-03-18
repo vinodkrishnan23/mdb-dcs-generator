@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getAccountDetails, flagWorkload } from '@/app/actions';
+import { getAccountDetails, flagWorkload, confirmWorkloadGenuine } from '@/app/actions';
 import { DCSDisplay } from '@/components/DCSDisplayNew';
 import { UserMenu } from '@/components/UserMenu';
 import { ArrowLeft, FileText, Download } from 'lucide-react';
@@ -33,6 +33,14 @@ export function DCSPageClient({ params, user }: DCSPageClientProps) {
       setSelectedWorkloadIndex(i => Math.min(i, Math.max(0, next.length - 1)));
       return next;
     });
+  };
+
+  const handleConfirmGenuine = async (workloadId: string) => {
+    await confirmWorkloadGenuine(accountId, workloadId, user.email);
+    // Update local state so the banner stays gone without a page reload
+    setDcsData(prev => prev.map(w =>
+      w.workloadId === workloadId ? { ...w, confirmedGenuine: true } : w
+    ));
   };
 
   useEffect(() => {
@@ -162,10 +170,12 @@ export function DCSPageClient({ params, user }: DCSPageClientProps) {
         )}
 
         <div className="bg-white rounded-lg shadow-lg p-8" id="dcs-content">
-          <DCSDisplay 
+          <DCSDisplay
             dcsData={currentDCS}
             accountName={account.name}
             onFlag={handleFlag}
+            onConfirmGenuine={handleConfirmGenuine}
+            isConfirmedGenuine={!!currentDCS.confirmedGenuine}
           />
         </div>
 

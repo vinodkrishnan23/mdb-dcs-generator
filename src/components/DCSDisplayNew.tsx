@@ -1,12 +1,14 @@
 import { type DCSData } from '@/lib/schemas';
-import { CheckCircle2, AlertCircle, HelpCircle, FileText, Network, CheckSquare, TrendingUp, Users, Calendar, Cpu, Rocket, Lightbulb, Layers, BrainCircuit, Flag } from 'lucide-react';
+import { CheckCircle2, AlertCircle, HelpCircle, FileText, Network, CheckSquare, TrendingUp, Users, Calendar, Cpu, Rocket, Lightbulb, Layers, BrainCircuit, ThumbsUp, ThumbsDown, Loader2 } from 'lucide-react';
 import { MongoDBContributionSection } from '@/components/MongoDBContributionSection';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface DCSDisplayProps {
   dcsData: DCSData;
   accountName: string;
   onFlag?: (workloadId: string) => void;
+  onConfirmGenuine?: (workloadId: string) => Promise<void> | void;
+  isConfirmedGenuine?: boolean;
 }
 
 /* ── Shared primitives ─────────────────────────────────── */
@@ -137,17 +139,36 @@ function TechStackGroup({ label, items, indent = false }: {
   );
 }
 
-export function DCSDisplay({ dcsData, accountName, onFlag }: DCSDisplayProps) {
+export function DCSDisplay({ dcsData, accountName, onFlag, onConfirmGenuine, isConfirmedGenuine }: DCSDisplayProps) {
   const { technical, commercial, strategy, mongodbContribution } = dcsData;
-  const [showConfirm, setShowConfirm] = useState(false);
+  const [genuineAnswer, setGenuineAnswer] = useState<boolean | null>(
+    isConfirmedGenuine ? true : null
+  );
+  const [saving, setSaving] = useState(false);
   const [flagging, setFlagging] = useState(false);
 
-  const handleFlag = async () => {
+  // Sync when the parent re-loads data from DB (e.g. after page navigation)
+  useEffect(() => {
+    if (isConfirmedGenuine) setGenuineAnswer(true);
+  }, [isConfirmedGenuine]);
+
+  const handleNo = async () => {
     if (!onFlag) return;
     setFlagging(true);
     await onFlag(dcsData.workloadId);
-    setFlagging(false);
-    setShowConfirm(false);
+  };
+
+  const handleYes = async () => {
+    if (!onConfirmGenuine) return;
+    setSaving(true);
+    setGenuineAnswer(true); // optimistic — banner disappears immediately
+    try {
+      await Promise.resolve(onConfirmGenuine(dcsData.workloadId));
+    } catch (e) {
+      console.error('Failed to save genuine answer:', e);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -162,35 +183,37 @@ export function DCSDisplay({ dcsData, accountName, onFlag }: DCSDisplayProps) {
         )}
       </div>
 
-      {/* ── Flag button ── */}
-      {onFlag && (
-        <div className="flex justify-end">
-          {showConfirm ? (
-            <div className="flex items-center gap-2 px-4 py-2 bg-red-50 border border-red-200 rounded-xl text-sm">
-              <span className="text-red-800 font-medium">Mark as invalid? This workload was from a MongoDB employee example and will be hidden from your view.</span>
-              <button
-                onClick={handleFlag}
-                disabled={flagging}
-                className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50"
-              >
-                {flagging ? 'Marking…' : 'Yes, mark invalid'}
-              </button>
-              <button
-                onClick={() => setShowConfirm(false)}
-                className="px-3 py-1 bg-white hover:bg-gray-50 text-gray-600 text-xs font-medium rounded-lg border border-gray-200 transition-colors"
-              >
-                Cancel
-              </button>
+      {/* ── Genuine workload prompt ── */}
+      {onFlag && genuineAnswer === null && (
+        <div className="flex items-center justify-between gap-4 px-5 py-3.5 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-2xl shadow-sm">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
+              <HelpCircle className="w-4 h-4 text-blue-600" />
             </div>
-          ) : (
+            <div>
+              <p className="text-sm font-semibold text-blue-900">Is this a genuine customer workload?</p>
+              <p className="text-xs text-blue-600 mt-0.5">Flag it if this was a MongoDB employee's example raised during the call</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
             <button
-              onClick={() => setShowConfirm(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl transition-colors"
+              onClick={handleYes}
+              disabled={saving}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-green-600 hover:bg-green-700 active:scale-95 text-white text-xs font-semibold rounded-xl shadow-sm transition-all disabled:opacity-70"
             >
-              <Flag className="w-3.5 h-3.5" />
-              Invalid — MongoDB Employee Example
+              {saving
+                ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Saving…</>
+                : <><ThumbsUp className="w-3.5 h-3.5" />Yes, genuine</>}
             </button>
-          )}
+            <button
+              onClick={handleNo}
+              disabled={flagging}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-red-50 active:scale-95 text-red-600 text-xs font-semibold rounded-xl border border-red-200 shadow-sm transition-all disabled:opacity-50"
+            >
+              <ThumbsDown className="w-3.5 h-3.5" />
+              {flagging ? 'Removing…' : 'No, remove it'}
+            </button>
+          </div>
         </div>
       )}
 
@@ -568,6 +591,10 @@ export function DCSDisplay({ dcsData, accountName, onFlag }: DCSDisplayProps) {
                   </div>
                 );
               })()}
+              {/* Other Tooling (CI/CD, observability, IaC, etc.) */}
+              {(technical.currentState.techStack.otherTooling?.length ?? 0) > 0 && (
+                <TechStackGroup label="Other Tooling" items={technical.currentState.techStack.otherTooling!} />
+              )}
             </div>
           </div>
         )}
