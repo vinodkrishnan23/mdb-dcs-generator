@@ -9,24 +9,28 @@ TigerLens is an enterprise-grade Next.js application that transforms raw sales c
 ## 🎯 Key Features
 
 ### Core Capabilities
-- 🤖 **Multi-Agent AI Pipeline**: Router → Slicer → 3 Extraction Agents + MongoDB Contribution Analyst
-- 📊 **Real-Time Processing Visualization**: Live agent workflow diagram with progress tracking
-- 🔍 **Intelligent Workload Detection**: Automatically identifies distinct sales opportunities from transcripts
-- 📝 **Comprehensive DCS Output**: Technical architecture, commercial details, and strategic insights
+- 🤖 **Incremental Transcript-by-Transcript Pipeline**: Each new transcript is processed independently — Router → Slicer → 4 Agents in parallel (Technical + Commercial + Strategy + MongoDB Contribution per workload)
+- 🧮 **LLM-Based Workload Deduplication**: Two-step matching — normalised-key exact match first, then a Gemini LLM call for semantic comparison — merges duplicate workloads across transcripts without embeddings
+- 🗄️ **Workload Collection**: Dedicated MongoDB `workloads` collection stores one document per workload per account, accumulating DCS data across all transcripts
+- 🔬 **Tech Stack Intelligence**: Technical Architect agent extracts the customer's full tech stack — databases, backend languages, frontend frameworks, messaging/streaming systems, and AI stack (LLMs, embedding models, chunking strategy, orchestration frameworks, multimodality)
+- 📊 **Real-Time Processing Visualization**: Live agent workflow diagram with per-transcript and per-workload progress
+- 🔍 **Intelligent Workload Detection**: Automatically identifies distinct sales opportunities, deduplicates within a transcript, and semantically matches across transcripts
+- 📝 **Comprehensive DCS Output**: Technical architecture, commercial details, strategic insights, and MongoDB team contribution — all per workload
 - 🎯 **"3 Whys" Framework**: Automated qualification (Why Anything? Why MongoDB? Why Now?)
 - 💡 **Discovery Coach**: AI-generated contextual questions to fill information gaps
 - 👥 **User Isolation**: Multi-user support with account-level access control
 - 🔄 **Background Processing**: Non-blocking generation with polling status updates
-- 📥 **Multi-File Upload**: Batch transcript processing (.txt and .vtt) from multiple call recordings
+- 📥 **Multi-File Upload**: Upload .txt/.vtt transcripts incrementally — only unprocessed transcripts are analysed on each Generate call
 - 📄 **PDF Export**: Professional DCS documents ready for customer delivery
 - 🔎 **Atlas Search**: Autocomplete (nGram substring) account search — matches anywhere in the name (e.g. "nimbus" finds "DataNimbus") with regex fallback during index provisioning
-- 🗑️ **Safe Delete**: Red delete button (bottom-right of tile, owner only) with modal confirmation — hard-deletes account + all transcripts
+- 🗑️ **Safe Delete**: Red delete button (bottom-right of tile, owner only) with modal confirmation — hard-deletes account + all transcripts + all workload documents
 
 ### Enterprise Features
 - 🔐 **Dual Authentication**: Kubernetes (Kanopy headers) + Local development (session cookies)
-- ⏱️ **Rate Limiting**: Sequential processing with intelligent delays to prevent API throttling
+- ⏱️ **Parallel Workload Processing**: Workloads within each transcript run all AI agents concurrently (`Promise.all`) — Slicer → 4 agents + semantic match in parallel — sequential DB writes follow
+- 🛡️ **Generate DCS Guard**: Button is disabled with a clear message when all uploaded transcripts have already been processed; prompts user to upload a new transcript
 - 🎨 **Modern UI/UX**: Responsive design with real-time updates and animated workflows
-- 📊 **Usage Tracking**: Token consumption and cost estimation per generation
+- 📊 **Usage Tracking**: Token consumption and cost estimation accumulated across all transcripts
 - 🔄 **Reset & Retry**: Recovery mechanism for stuck or failed generations
 - 🏷️ **Workload Tabs**: Multi-workload support with tabbed interface
 
@@ -37,62 +41,64 @@ TigerLens is an enterprise-grade Next.js application that transforms raw sales c
 ### Multi-Agent AI System
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    TRANSCRIPT INPUT                          │
-└────────────────────┬────────────────────────────────────────┘
-                     │
-              ╔══════▼══════╗
-              ║   PASS 1    ║
-              ╚══════╤══════╝
-                     │
-           ┌─────────▼─────────┐
-           │   ROUTER AGENT    │ ← Customer workloads only
-           │  (Gemini 2.5 Pro) │   Filters MongoDB suggestions
-           └─────────┬─────────┘
-                     │  (per workload, confidence > 0.6)
-              ╔══════▼══════╗
-              ║   PASS 2    ║  (parallel per workload)
-              ╚══════╤══════╝
-                     │
-           ┌─────────▼─────────┐
-           │   SLICER AGENT    │ ← Two-stage filter:
-           │  (Gemini 2.5 Pro) │   1) Remove MongoDB dialogue
-           └─────────┬─────────┘   2) Filter by workload
-                     │  (sanitized customer-only context)
-        ┌────────────┴────────────┐
-        │                        │
-        ▼                        ▼
-┌──────────────┐        ┌──────────────┐
-│  TECHNICAL   │        │  COMMERCIAL  │
-│    AGENT     │        │    AGENT     │
-│ Architecture │        │ Stakeholders │
-│ Pain Points  │        │  (Customer   │
-│ Future State │        │   only)      │
-└──────┬───────┘        └──────┬───────┘
-       │                       │
-       │     ┌─────────────┐   │
-       └────►│   STRATEGY  │◄──┘
-             │    AGENT    │
-             │ Sales Motion│
-             │   3 Whys    │
-             │ Gap Analysis│
-             └──────┬──────┘
-                    │
-              ╔═════▼═════╗
-              ║  PASS 3   ║  (runs ONCE for full transcript)
-              ╚═════╤═════╝
-                    │
-           ┌────────▼──────────┐
-           │  MONGODB CONTRIB  │ ← Full raw transcript
-           │  ANALYST AGENT    │   Team-level, no individual
-           │  (Gemini 2.5 Pro) │   attribution
-           └────────┬──────────┘
-                    │  (same result shared across all workloads)
-                    ▼
-           ┌─────────────────────┐
-           │   STRUCTURED DCS    │
-           │  (per workload tab) │
-           └─────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│              INCREMENTAL TRANSCRIPT PROCESSING                   │
+│           (one transcript at a time, sequentially)              │
+└──────────────────────┬──────────────────────────────────────────┘
+                       │ foreach pending transcript
+              ╔════════▼════════╗
+              ║ PER TRANSCRIPT  ║
+              ╚════════╤════════╝
+                       │
+           ┌───────────▼───────────┐
+           │     ROUTER AGENT      │ ← identifies distinct workloads
+           │   (Gemini 2.5 Pro)    │   confidence >= 0.6 filter
+           └───────────┬───────────┘
+                       │ foreach valid workload
+              ╔════════▼════════╗
+              ║  PER WORKLOAD   ║
+              ╚════════╤════════╝
+                       │
+           ┌───────────▼───────────┐
+           │     SLICER AGENT      │ ← filters transcript to
+           │   (Gemini 2.5 Pro)    │   workload-specific context
+           └───────────┬───────────┘
+                       │ (sanitizedContext)
+     ┌─────────────────┼─────────────────┐────────────────┐
+     ▼                 ▼                 ▼                ▼
+┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────────┐
+│ TECHNICAL  │  │ COMMERCIAL │  │  STRATEGY  │  │   MONGODB      │
+│   AGENT   │  │   AGENT    │  │   AGENT    │  │ CONTRIBUTION   │
+│           │  │            │  │            │  │    AGENT       │
+│ Arch +    │  │ Stakeholders│  │ 3 Whys +  │  │ Team-level,   │
+│ Pain pts  │  │ Timeline   │  │ Gap Anal. │  │ no individual  │
+│ Data flow │  │ Partners   │  │ Next Steps │  │ attribution    │
+└─────┬──────┘  └──────┬─────┘  └─────┬──────┘  └───────┬────────┘
+      └──────────────┬─┘               │                 │
+                     └─────────────────┘─────────────────┘
+                                       │
+                    ╔══════════════════▼══════════════════╗
+                    ║     SEMANTIC WORKLOAD MATCHING       ║
+                    ║   Step 1: normalizedKey exact match  ║
+                    ║   Step 2: Gemini LLM semantic check  ║
+                    ║   match found → MERGE existing doc   ║
+                    ║   no match    → NEW Workload doc     ║
+                    ╚══════════════════╤══════════════════╝
+                                       │
+                    ┌──────────────────▼──────────────────┐
+                    │         workloads COLLECTION         │
+                    │  { workloadId, workloadName,         │
+                    │    normalizedKey, seenCount,         │
+                    │    transcriptIds[],                  │
+                    │    technical (incl. techStack),      │
+                    │    commercial, strategy,             │
+                    │    mongodbContribution }             │
+                    └──────────────────┬──────────────────┘
+                                       │
+                    ┌──────────────────▼──────────────────┐
+                    │  Account.dcsData snapshot (rebuilt)  │
+                    │  after every processed transcript    │
+                    └─────────────────────────────────────┘
 ```
 
 ### Tech Stack
@@ -104,9 +110,9 @@ TigerLens is an enterprise-grade Next.js application that transforms raw sales c
 
 **Backend**
 - **Runtime**: Node.js with Next.js Server Actions
-- **Database**: MongoDB Atlas with Mongoose ODM
+- **Database**: MongoDB Atlas with Mongoose ODM — `accounts`, `transcripts`, `workloads` collections
 - **AI/ML**: Vercel AI SDK (`ai` v6) + Google Generative AI SDK
-- **Models**: Google Gemini 2.5 Pro (via `@ai-sdk/google`)
+- **Generation Models**: Google Gemini 2.5 Pro (via `@ai-sdk/google`)
 - **Schema Validation**: Zod 4
 
 **Authentication**

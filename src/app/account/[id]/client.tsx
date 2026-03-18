@@ -143,6 +143,10 @@ export function AccountPageClient({ params, user }: AccountPageClientProps) {
               accountId={account._id}
               status={account.status}
               hasTranscripts={account.transcripts.length > 0}
+              allTranscriptsProcessed={
+                account.transcripts.length > 0 &&
+                account.transcripts.every((t: any) => t.processedForDcs)
+              }
             />
           </div>
 

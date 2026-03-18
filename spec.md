@@ -14,26 +14,57 @@
 
 ## 1.1 Clarifications & Logic Rules
 ### 1. Workload ID Generation
-- **Decision:** Use `crypto.randomUUID()` to generate a unique string ID for every detected workload.
-- *Why:* Relying on `workloadName` is risky if the AI generates slightly different names on re-runs.
+- **Decision:** Use `crypto.randomUUID()` to generate a unique string ID for every **new** workload document created in the `Workload` collection.
+- *Why:* Relying on `workloadName` is risky if the AI generates slightly different names across transcripts.
 
 ### 2. Token Usage & Cost
-- **Decision:** Track token usage as the **SUM** of all passes (Router + Slicer + Extraction Agents).
+- **Decision:** Track token usage as the **SUM** of all passes per transcript (Router + Slicer + 4 Extraction Agents).
 
 ### 3. Status Updates (UI Feedback)
 - **Decision:** Keep it simple.
   - `IDLE`: No action yet.
-  - `PROCESSING`: Global loading state.
+  - `PROCESSING`: Global loading state — shows `currentTranscript`, `currentWorkload`, progress fraction.
   - `COMPLETED`: Data is ready.
 - *Implementation:* Show a spinner saying "Analyzing Transcripts..." during `PROCESSING`.
 
 ### 4. Confidence Threshold Logic
-- **Decision:** **FILTER OUT** workloads with `< 0.6` confidence.
-- *Logic:* In `actions/generate.ts`, filter the array returned by the Router Agent *before* entering the extraction loop.
+- **Decision:** **FILTER OUT** workloads with `< 0.6` confidence from the Router Agent.
+- *Logic:* Filter the array returned by the Router Agent *before* entering the extraction loop.
 
-### 5. Data Migration (Handling Old Data)
-- **Decision:** **Fresh Start (Destructive Update).**
-- *Logic:* When `generateDCS(accountId)` is called, **OVERWRITE** the existing `dcsData` array completely.
+### 5. Incremental Processing (NEW)
+- **Decision:** Process each transcript **one at a time**, sequentially.
+- *Logic:* On `generateDCS(accountId)`:
+  1. Load all `Transcript` documents for the account, sorted by `createdAt`.
+  2. Filter for those where `processedForDcs === false` (pending).
+  3. Process each pending transcript in order.
+  4. Mark transcript as `processedForDcs: true` after completing its workloads.
+  5. New transcripts can be uploaded and processed later without reprocessing old ones.
+- **Account.dcsData** is rebuilt as a denormalised snapshot from the `Workload` collection after each transcript completes.
+
+### 6. Semantic Workload Deduplication via LLM Matching
+- **Decision:** Two-step deduplication: fast normalised-key exact match, then a single Gemini LLM call for semantic comparison.
+- *Logic (`findMatchingWorkload`):*
+  1. `normalizeWorkloadName(name)` — lowercase, remove stop-words → `normalizedKey`.
+  2. **Step 1 — Exact match:** Compare `normalizedKey` against all existing Workload documents. If a match is found, return that `workloadId` immediately (no LLM call needed).
+  3. **Step 2 — Semantic match:** If no exact match, pass the new workload name + context and the list of all existing workload names to Gemini. Ask it to identify if any existing workload is semantically equivalent. Returns a `matchedWorkloadId` or null.
+  4. If matched → merge new DCS data into the matched Workload document (using the merge agent).
+  5. If no match → create a brand-new Workload document.
+- *Why LLM over cosine similarity:* Avoids embedding API complexity while reliably handling name drift ("Ticketing App" vs "Ticketing System").
+
+### 7. Workload Collection
+- Workloads are tracked in a **dedicated `workloads` MongoDB collection**.
+- Each document stores: `accountId`, `workloadId` (UUID), `workloadName`, `normalizedKey`, `transcriptIds` (array), `seenCount`, `firstSeenTranscriptId`, `lastSeenTranscriptId`, plus the DCS payload (`technical`, `commercial`, `strategy`, `mongodbContribution`).
+- `Account.dcsData` is a **denormalised snapshot** rebuilt from the Workload collection to avoid N+1 queries in the UI.
+
+### 9. Generate DCS — UX Guard
+- **Decision:** Before starting generation, check if all uploaded transcripts are already `processedForDcs: true`.
+- *Logic:* `generateDCS(accountId)` calls `Transcript.countDocuments({ accountId, processedForDcs: { $ne: true } })` first. If the count is 0, return `{ success: true, allProcessed: true }` immediately without touching the DB status.
+- *UI:* The Generate DCS button is disabled (greyed-out) when `allTranscriptsProcessed === true`. A green banner reads: **"All transcripts have been processed. Upload a new transcript to regenerate the DCS."**
+
+### 8. MongoDB Contribution Analyst — Per-Workload (UPDATED)
+- **Decision:** Run the MongoDB Contribution Analyst agent **per workload per transcript** (not once for the whole batch).
+- *Context:* Uses the `sanitizedContext` (workload-filtered text) so it only analyses the portion of the conversation relevant to that workload.
+- *Why:* This gives more precise, per-workload insight into how the MongoDB team performed during that specific workload discussion. The result is merged into the workload DCS data via the merge agent when processing subsequent transcripts.
 
 ---
 
@@ -45,7 +76,7 @@
 - `sharedWith`: [String] (Array of email addresses with access)
 - `industryContext`: String (e.g., "FinTech")
 - `transcriptIds`: [ObjectId ref 'Transcript']
-- `dcsData`: **Array** of Objects
+- `dcsData`: **Array** of Objects — *denormalised snapshot rebuilt from Workload collection after each transcript*
   - Schema: `[{ workloadId: String, workloadName: String, ...FullDCS_Object }]`
 - `status`: String ('IDLE', 'PROCESSING', 'COMPLETED')
 - `totalTokensUsed`: Number (Optional, for tracking)
@@ -55,6 +86,23 @@
 - `filename`: String
 - `fullText`: String (Max 16MB document limit is fine for text)
 - `uploadedAt`: Date
+- `processedForDcs`: Boolean (default: false, indexed) — tracks whether this transcript has been processed
+- `processedAt`: Date — set when processing completes
+
+### `models/Workload.ts` *(dedicated collection)*
+- `accountId`: ObjectId ref 'Account' (index: true)
+- `workloadId`: String (UUID, unique per account)
+- `workloadName`: String
+- `normalizedKey`: String (lowercased, stop-word-stripped for fast lookup)
+- `transcriptIds`: [ObjectId ref 'Transcript'] — every transcript that contributed to this workload
+- `seenCount`: Number — how many transcripts have mentioned this workload
+- `firstSeenTranscriptId`: ObjectId
+- `lastSeenTranscriptId`: ObjectId
+- `technical`: Mixed (TechnicalData payload)
+- `commercial`: Mixed (CommercialData payload)
+- `strategy`: Mixed (StrategyData payload)
+- `mongodbContribution`: Mixed (MongodbContributionData payload)
+- Compound unique index: `{ accountId: 1, workloadId: 1 }`
 
 ---
 
@@ -167,8 +215,10 @@ Implement `actions/generate.ts` using a **Two-Pass Strategy**:
 - **Prompt:** "Identify distinct software projects/workloads discussed. Return a list. Ignore minor features."
 - **Schema:** `routerSchema`
 
-#### Pass 2: The Slicer & Extraction Loop (Updated)
-Iterate through each valid opportunity (`confidence > 0.6`). Do NOT pass the raw transcript to the extraction agents.
+#### Pass 2: Parallel Workload Fan-Out
+All workloads within a transcript are processed **in parallel** using `Promise.all`. Each workload's Slicer + 4 Agents + semantic match run concurrently. Sequential DB writes follow after all AI calls resolve.
+
+For each valid opportunity (`confidence > 0.6`):
 
 **Step 2a: The Slicer Agent (The Firewall)**
 For each opportunity, run a specialized AI call to generate a **Sanitized Context**.
@@ -187,45 +237,34 @@ For each opportunity, run a specialized AI call to generate a **Sanitized Contex
 Run the **3-Agent Chain** (Technical, Commercial, Strategy) in parallel using the `sanitizedContext` (NOT the full text).
 
 #### Agent 1: The Technical Architect
-**Focus:** Hardware, Topology, Latency, Version numbers, Use Cases, Data Flow.
+**Focus:** Hardware, Topology, Latency, Version numbers, Use Cases, Data Flow, Tech Stack.
 **System Prompt:**
 > "You are a Principal Architect. Extract ONLY technical evidence: specific instance types (e.g. m5.large), database versions, topology (Replica Set vs Sharded), and metrics (latency, throughput). Ignore sales politics.
-> "CRITICAL GROUNDING RULE: You must extract information strictly from the CUSTOMER'S perspective. 
+> "CRITICAL GROUNDING RULE: You must extract information strictly from the CUSTOMER'S perspective.
 > - If the MongoDB Rep suggests a feature (e.g., 'You should use Time Series'), DO NOT add it to 'Future State' unless the Customer explicitly agrees or asks for it.
 > - Current State and Pain Points must be facts stated by the Customer, not assumptions made by the Rep."
-> **A. ACCOUNT & WORKLOAD**
-> - **Workload Name:** Format: "App Name / Project Name".
-> - **Industry Context:** What do they sell? Who do they serve?
 >
 > **B. TECHNICAL DEEP DIVE (Current vs. Future)**
-> - **Current State Description:** Provide a detailed explanation of the current solution and architecture.
+> - **Current State Description:** Detailed explanation of the current solution and architecture.
 > - **Current Architecture:** Topology, Hardware, Data Flow, Metrics.
 > - **Negative Consequences:** Link Technical Root Cause -> Business Impact.
-> - **Future State:**
->   - **Proposed Solution:** detailed explanation of the proposed MongoDB Atlas solution, implementation, migration strategy.
->   - **Specific Features:** Time Series, Search, Vector, Online Archive.
->   - **Outcomes:** Measurable success metrics.
+> - **Future State:** Proposed Solution (implementation + migration strategy), Specific Features (Time Series, Atlas Search, Vector Search, Online Archive), Outcomes.
+>
+> **E. TECH STACK (Current — extract from what the customer mentions)**
+> Extract each layer of the customer's current tech stack. One-liner per item. Only include items explicitly mentioned or strongly implied by the customer.
+> - **Databases:** All databases in use (e.g. PostgreSQL 14 — primary OLTP store, Redis — session cache).
+> - **Backend Languages / API Frameworks:** (e.g. Java Spring Boot — core microservices, Python FastAPI — ML serving layer).
+> - **Frontend Technologies:** Web/mobile UI frameworks (e.g. React — customer portal, iOS Swift — mobile app).
+> - **Messaging & Streaming:** Event brokers, queues, streaming platforms (e.g. Apache Kafka — event backbone).
+> - **AI Stack (only if discussed):** LLMs + use, embedding models + use, chunking strategy, orchestration frameworks (LangChain, LlamaIndex, etc.), preferred AI/ML language, multimodality (image/audio/video), other AI tooling (guardrails, eval frameworks, inference servers).
 >
 > **C. USE CASE SUMMARY**
-> - **Detailed Use Case:** Provide a comprehensive 2-3 paragraph summary describing:
->   - What the application does and who the end users are
->   - The business problem it solves
->   - Key workflows and user interactions
->   - Data patterns (read-heavy, write-heavy, real-time requirements)
->   - Scale and performance characteristics
+> - Application Purpose, Business Problem, Key Workflows, Data Patterns, Scale Characteristics.
 >
 > **D. DATA FLOW DIAGRAM**
-> - **Component Description:** Extract a list of all system components in the data flow:
->   - Client/User Interface layers (Web, Mobile, API consumers)
->   - Application/Service layers (Microservices, APIs, Backend services)
->   - Data layer (Current database, MongoDB Atlas target, caching layers)
->   - External integrations (Third-party APIs, Cloud services, Message queues)
-> - **Flow Description:** Describe the data flow between components:
->   - How data enters the system (user actions, APIs, events)
->   - Processing and transformation steps
->   - Storage and retrieval patterns
->   - Output/consumption of data
-> - **Volume & Velocity:** Key metrics for each flow (requests per second, data volume, latency requirements)"
+> - Components: Client/UI, Application/Service, Data, External Integration layers.
+> - Flows: how data enters, is processed, stored, consumed.
+> - Volume & Velocity metrics per flow."
 
 #### Agent 2: The Commercial Manager
 **Focus:** Stakeholders, Timeline, Partners.
@@ -391,7 +430,22 @@ export const technicalSchema = z.object({
       currentStateDescription: z.string().optional(),
       technicalRootCause: z.string().describe("Specific cause (e.g. No Compression)"),
       businessImpact: z.string().describe("Impact (e.g. High Storage Cost)")
-    }))
+    })),
+    techStack: z.object({
+      databases: z.array(z.object({ name: z.string(), summary: z.string() })),
+      backendLanguages: z.array(z.object({ name: z.string(), summary: z.string() })),
+      frontendTechnologies: z.array(z.object({ name: z.string(), summary: z.string() })),
+      messagingAndStreaming: z.array(z.object({ name: z.string(), summary: z.string() })),
+      aiStack: z.object({
+        llms: z.array(z.object({ name: z.string(), summary: z.string() })),
+        embeddingModels: z.array(z.object({ name: z.string(), summary: z.string() })),
+        chunkingStrategy: z.string().optional(),
+        orchestrationFrameworks: z.array(z.object({ name: z.string(), summary: z.string() })),
+        preferredLanguage: z.string().optional(),
+        multimodality: z.string().optional(),
+        otherAITools: z.array(z.object({ name: z.string(), summary: z.string() }))
+      })
+    })
   }),
   futureState: z.object({
     futureStateDescription: z.string().optional(),

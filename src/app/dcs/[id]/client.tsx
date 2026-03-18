@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getAccountDetails } from '@/app/actions';
+import { getAccountDetails, flagWorkload } from '@/app/actions';
 import { DCSDisplay } from '@/components/DCSDisplayNew';
 import { UserMenu } from '@/components/UserMenu';
 import { ArrowLeft, FileText, Download } from 'lucide-react';
@@ -24,6 +24,16 @@ export function DCSPageClient({ params, user }: DCSPageClientProps) {
   const [exporting, setExporting] = useState(false);
   const [accountId, setAccountId] = useState<string>('');
   const [selectedWorkloadIndex, setSelectedWorkloadIndex] = useState(0);
+  const [dcsData, setDcsData] = useState<any[]>([]);
+
+  const handleFlag = async (workloadId: string) => {
+    await flagWorkload(accountId, workloadId, user.email);
+    setDcsData(prev => {
+      const next = prev.filter(w => w.workloadId !== workloadId);
+      setSelectedWorkloadIndex(i => Math.min(i, Math.max(0, next.length - 1)));
+      return next;
+    });
+  };
 
   useEffect(() => {
     async function loadAccount() {
@@ -31,6 +41,10 @@ export function DCSPageClient({ params, user }: DCSPageClientProps) {
       setAccountId(id);
       const accountData = await getAccountDetails(id, user.email);
       setAccount(accountData);
+      if (accountData?.dcsData) {
+        const arr = Array.isArray(accountData.dcsData) ? accountData.dcsData : [accountData.dcsData];
+        setDcsData(arr);
+      }
       setLoading(false);
     }
     loadAccount();
@@ -41,7 +55,7 @@ export function DCSPageClient({ params, user }: DCSPageClientProps) {
     
     setExporting(true);
     try {
-      const workloadName = account.dcsData[selectedWorkloadIndex]?.workloadName || 'workload';
+      const workloadName = dcsData[selectedWorkloadIndex]?.workloadName || 'workload';
       const filename = `DCS-${account.name.replace(/[^a-z0-9]/gi, '_')}-${workloadName.replace(/[^a-z0-9]/gi, '_')}-${new Date().toISOString().split('T')[0]}.pdf`;
       await exportToPDF('dcs-content', filename);
     } catch (error) {
@@ -62,7 +76,7 @@ export function DCSPageClient({ params, user }: DCSPageClientProps) {
     );
   }
 
-  if (!account || !account.dcsData || account.dcsData.length === 0) {
+  if (!account || dcsData.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -81,7 +95,7 @@ export function DCSPageClient({ params, user }: DCSPageClientProps) {
     );
   }
 
-  const currentDCS = account.dcsData[selectedWorkloadIndex];
+  const currentDCS = dcsData[selectedWorkloadIndex];
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -127,10 +141,10 @@ export function DCSPageClient({ params, user }: DCSPageClientProps) {
         </div>
 
         {/* Workload Tabs - Show only if multiple workloads */}
-        {account.dcsData.length > 1 && (
+        {dcsData.length > 1 && (
           <div className="mb-6 border-b border-gray-200">
             <div className="flex space-x-2">
-              {account.dcsData.map((dcs: any, index: number) => (
+              {dcsData.map((dcs: any, index: number) => (
                 <button
                   key={dcs.workloadId}
                   onClick={() => setSelectedWorkloadIndex(index)}
@@ -151,6 +165,7 @@ export function DCSPageClient({ params, user }: DCSPageClientProps) {
           <DCSDisplay 
             dcsData={currentDCS}
             accountName={account.name}
+            onFlag={handleFlag}
           />
         </div>
 

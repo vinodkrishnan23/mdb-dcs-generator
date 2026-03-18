@@ -3,7 +3,14 @@
 import { useState, useEffect } from 'react';
 import { DCSData } from '@/lib/schemas';
 import { AgentFlowDiagram } from './AgentFlowDiagram';
-import { Clock, AlertCircle, FileText } from 'lucide-react';
+import { Clock, AlertCircle, FileText, Coins } from 'lucide-react';
+
+interface LiveUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  estimatedCost: number;
+}
 
 interface DCSPreviewProps {
   accountId: string;
@@ -23,6 +30,7 @@ export function DCSPreview({
   const [status, setStatus] = useState(initialStatus);
   const [progressStep, setProgressStep] = useState(initialProgressStep);
   const [progressDetails, setProgressDetails] = useState(initialProgressDetails);
+  const [liveUsage, setLiveUsage] = useState<LiveUsage | null>(null);
   const [dcsDataArray, setDcsDataArray] = useState<DCSData[]>(() => {
     if (!initialDcsData) return [];
     if (Array.isArray(initialDcsData)) return initialDcsData;
@@ -40,6 +48,7 @@ export function DCSPreview({
           setStatus(data.status);
           setProgressStep(data.progressStep);
           setProgressDetails(data.progressDetails);
+          if (data.usage) setLiveUsage(data.usage);
           
           if (data.status === 'COMPLETED' && data.dcsData) {
             const dataArray = Array.isArray(data.dcsData) ? data.dcsData : [data.dcsData];
@@ -72,6 +81,28 @@ export function DCSPreview({
     return (
       <div className="py-4">
         <AgentFlowDiagram currentStep={progressStep} />
+        {liveUsage && (
+          <div className="mt-4 mx-2 px-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-1.5 text-gray-500">
+              <Coins className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              <span className="text-xs font-medium text-gray-600">Token Usage</span>
+            </div>
+            <div className="flex items-center gap-3 flex-wrap ml-1">
+              <span className="text-xs text-gray-500">
+                <span className="font-medium text-gray-700">{liveUsage.promptTokens.toLocaleString()}</span> in
+              </span>
+              <span className="text-xs text-gray-500">
+                <span className="font-medium text-gray-700">{liveUsage.completionTokens.toLocaleString()}</span> out
+              </span>
+              <span className="text-xs text-gray-500">
+                <span className="font-medium text-gray-700">{liveUsage.totalTokens.toLocaleString()}</span> total
+              </span>
+              <span className="ml-auto text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-100">
+                ${liveUsage.estimatedCost.toFixed(4)}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

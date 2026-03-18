@@ -67,7 +67,7 @@ export function AgentFlowDiagram({ currentStep = '' }: AgentFlowDiagramProps) {
         <p className="text-sm font-semibold text-gray-900">
           AI agents working{dots}
         </p>
-        <p className="text-xs text-gray-400 mt-0.5">Multi-pass pipeline · usually 30–90 s</p>
+        <p className="text-xs text-gray-400 mt-0.5">Multi-pass pipeline · may take up to 10 mins..depending on number of transcripts</p>
       </div>
 
       {/* Steps */}
