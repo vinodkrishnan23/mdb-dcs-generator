@@ -1,10 +1,12 @@
 import { type DCSData } from '@/lib/schemas';
-import { CheckCircle2, AlertCircle, HelpCircle, FileText, Network, CheckSquare, TrendingUp, Users, Calendar, Cpu, Rocket, Lightbulb } from 'lucide-react';
+import { CheckCircle2, AlertCircle, HelpCircle, FileText, Network, CheckSquare, TrendingUp, Users, Calendar, Cpu, Rocket, Lightbulb, Layers, BrainCircuit, Flag } from 'lucide-react';
 import { MongoDBContributionSection } from '@/components/MongoDBContributionSection';
+import { useState } from 'react';
 
 interface DCSDisplayProps {
   dcsData: DCSData;
   accountName: string;
+  onFlag?: (workloadId: string) => void;
 }
 
 /* ── Shared primitives ─────────────────────────────────── */
@@ -64,7 +66,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 /** Renders inline **bold** markers and auto-detects numbered / bulleted lists. */
-function RichText({ text }: { text: string }) {
+function RichText({ text }: { text?: string }) {
   if (!text) return null;
 
   // Inline bold: split on **...**
@@ -114,8 +116,39 @@ function RichText({ text }: { text: string }) {
 
 /* ── Main component ────────────────────────────────────── */
 
-export function DCSDisplay({ dcsData, accountName }: DCSDisplayProps) {
+function TechStackGroup({ label, items, indent = false }: {
+  label: string;
+  items: { name: string; summary: string }[];
+  indent?: boolean;
+}) {
+  return (
+    <div className={indent ? 'pl-2' : 'px-5 py-3'}>
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{label}</p>
+      <div className="space-y-1.5">
+        {items.map((item, i) => (
+          <div key={i} className="flex gap-2 items-baseline">
+            <span className="text-sm font-semibold text-gray-800 flex-shrink-0">{item.name}</span>
+            <span className="text-gray-300 flex-shrink-0">—</span>
+            <span className="text-sm text-gray-600">{item.summary}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function DCSDisplay({ dcsData, accountName, onFlag }: DCSDisplayProps) {
   const { technical, commercial, strategy, mongodbContribution } = dcsData;
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [flagging, setFlagging] = useState(false);
+
+  const handleFlag = async () => {
+    if (!onFlag) return;
+    setFlagging(true);
+    await onFlag(dcsData.workloadId);
+    setFlagging(false);
+    setShowConfirm(false);
+  };
 
   return (
     <div className="space-y-4">
@@ -123,11 +156,43 @@ export function DCSDisplay({ dcsData, accountName }: DCSDisplayProps) {
       {/* ── Header ── */}
       <div className="text-center py-4">
         <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">Discovery Capture Sheet</p>
-        <h1 className="text-2xl font-bold text-gray-900">{commercial.accountInfo.accountName}</h1>
-        {commercial.accountInfo.workloadName && (
-          <p className="text-sm text-gray-500 mt-1">{commercial.accountInfo.workloadName}</p>
+        <h1 className="text-2xl font-bold text-gray-900">{accountName}</h1>
+        {dcsData.workloadName && (
+          <p className="text-sm text-gray-500 mt-1">{dcsData.workloadName}</p>
         )}
       </div>
+
+      {/* ── Flag button ── */}
+      {onFlag && (
+        <div className="flex justify-end">
+          {showConfirm ? (
+            <div className="flex items-center gap-2 px-4 py-2 bg-red-50 border border-red-200 rounded-xl text-sm">
+              <span className="text-red-800 font-medium">Mark as invalid? This workload was from a MongoDB employee example and will be hidden from your view.</span>
+              <button
+                onClick={handleFlag}
+                disabled={flagging}
+                className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50"
+              >
+                {flagging ? 'Marking…' : 'Yes, mark invalid'}
+              </button>
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="px-3 py-1 bg-white hover:bg-gray-50 text-gray-600 text-xs font-medium rounded-lg border border-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowConfirm(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl transition-colors"
+            >
+              <Flag className="w-3.5 h-3.5" />
+              Invalid — MongoDB Employee Example
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ── Deal Strategy ── */}
       <SectionCard>
@@ -398,21 +463,21 @@ export function DCSDisplay({ dcsData, accountName }: DCSDisplayProps) {
         <SectionHeader icon={<Cpu className="w-4 h-4" />} title="Current State" color="slate" />
         <dl>
           <KVRow label="Description"      value={<RichText text={technical.currentState.currentStateDescription} />} />
-          <KVRow label="Topology"         value={<RichText text={technical.currentState.architecture.topology} />} />
-          <KVRow label="Infrastructure"   value={<RichText text={technical.currentState.architecture.infrastructure} />} />
-          {technical.currentState.architecture.databaseVersion && (
+          <KVRow label="Topology"         value={<RichText text={technical.currentState.architecture?.topology} />} />
+          <KVRow label="Infrastructure"   value={<RichText text={technical.currentState.architecture?.infrastructure} />} />
+          {technical.currentState.architecture?.databaseVersion && (
             <KVRow label="DB Version"     value={technical.currentState.architecture.databaseVersion} />
           )}
-          {technical.currentState.metrics.dataSize && (
+          {technical.currentState.metrics?.dataSize && (
             <KVRow label="Data Size"      value={technical.currentState.metrics.dataSize} />
           )}
-          {technical.currentState.metrics.latency && (
+          {technical.currentState.metrics?.latency && (
             <KVRow label="Latency"        value={technical.currentState.metrics.latency} />
           )}
-          {technical.currentState.metrics.throughput && (
+          {technical.currentState.metrics?.throughput && (
             <KVRow label="Throughput"     value={technical.currentState.metrics.throughput} />
           )}
-          {technical.currentState.painPoints.length > 0 && (
+          {technical.currentState.painPoints?.length > 0 && (
             <KVRow
               label="Pain Points"
               value={
@@ -429,6 +494,83 @@ export function DCSDisplay({ dcsData, accountName }: DCSDisplayProps) {
             />
           )}
         </dl>
+
+        {/* ── Tech Stack sub-section ── */}
+        {technical.currentState.techStack && (
+          <div className="border-t border-gray-100">
+            <div className="flex items-center gap-2 px-5 py-2.5 bg-gray-50">
+              <Layers className="w-3.5 h-3.5 text-gray-500" />
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tech Stack</span>
+            </div>
+            <div className="divide-y divide-gray-50">
+              {/* Databases */}
+              {technical.currentState.techStack.databases?.length > 0 && (
+                <TechStackGroup label="Databases" items={technical.currentState.techStack.databases} />
+              )}
+              {/* Backend */}
+              {technical.currentState.techStack.backendLanguages?.length > 0 && (
+                <TechStackGroup label="Backend / APIs" items={technical.currentState.techStack.backendLanguages} />
+              )}
+              {/* Frontend */}
+              {technical.currentState.techStack.frontendTechnologies?.length > 0 && (
+                <TechStackGroup label="Frontend" items={technical.currentState.techStack.frontendTechnologies} />
+              )}
+              {/* Messaging & Streaming */}
+              {technical.currentState.techStack.messagingAndStreaming?.length > 0 && (
+                <TechStackGroup label="Messaging & Streaming" items={technical.currentState.techStack.messagingAndStreaming} />
+              )}
+              {/* AI Stack */}
+              {(() => {
+                const ai = technical.currentState.techStack.aiStack;
+                if (!ai) return null;
+                const hasAI = (ai.llms?.length ?? 0) > 0 || (ai.embeddingModels?.length ?? 0) > 0 ||
+                  ai.chunkingStrategy || (ai.orchestrationFrameworks?.length ?? 0) > 0 ||
+                  ai.preferredLanguage || ai.multimodality || (ai.otherAITools?.length ?? 0) > 0;
+                if (!hasAI) return null;
+                return (
+                  <div className="px-5 py-3">
+                    <div className="flex items-center gap-2 mb-3">
+                      <BrainCircuit className="w-3.5 h-3.5 text-purple-500" />
+                      <span className="text-xs font-semibold text-purple-700 uppercase tracking-wide">AI Stack</span>
+                    </div>
+                    <div className="space-y-3">
+                      {(ai.llms?.length ?? 0) > 0 && (
+                        <TechStackGroup label="LLMs" items={ai.llms!} indent />
+                      )}
+                      {(ai.embeddingModels?.length ?? 0) > 0 && (
+                        <TechStackGroup label="Embedding Models" items={ai.embeddingModels!} indent />
+                      )}
+                      {ai.chunkingStrategy && (
+                        <div className="pl-2">
+                          <span className="text-xs font-semibold text-gray-400 uppercase">Chunking Strategy</span>
+                          <p className="text-sm text-gray-800 mt-0.5">{ai.chunkingStrategy}</p>
+                        </div>
+                      )}
+                      {(ai.orchestrationFrameworks?.length ?? 0) > 0 && (
+                        <TechStackGroup label="Orchestration" items={ai.orchestrationFrameworks!} indent />
+                      )}
+                      {ai.preferredLanguage && (
+                        <div className="pl-2">
+                          <span className="text-xs font-semibold text-gray-400 uppercase">Preferred Language</span>
+                          <p className="text-sm text-gray-800 mt-0.5">{ai.preferredLanguage}</p>
+                        </div>
+                      )}
+                      {ai.multimodality && (
+                        <div className="pl-2">
+                          <span className="text-xs font-semibold text-gray-400 uppercase">Multimodality</span>
+                          <p className="text-sm text-gray-800 mt-0.5">{ai.multimodality}</p>
+                        </div>
+                      )}
+                      {(ai.otherAITools?.length ?? 0) > 0 && (
+                        <TechStackGroup label="Other AI Tooling" items={ai.otherAITools!} indent />
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        )}
       </SectionCard>
 
       {/* ── Future State ── */}

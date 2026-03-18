@@ -5,6 +5,8 @@ export interface ITranscript extends Document {
   filename: string;
   fullText: string;
   userEmail: string;
+  processedForDcs: boolean;
+  processedAt?: Date;
   createdAt: Date;
 }
 
@@ -25,6 +27,14 @@ const TranscriptSchema: Schema = new Schema({
   userEmail: {
     type: String,
     required: true,
+  },
+  processedForDcs: {
+    type: Boolean,
+    default: false,
+    index: true,
+  },
+  processedAt: {
+    type: Date,
   },
   createdAt: {
     type: Date,

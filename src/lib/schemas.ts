@@ -27,7 +27,46 @@ export const technicalSchema = z.object({
       currentStateDescription: z.string(),
       technicalRootCause: z.string().describe("Specific cause of failure (e.g. No Compression)"),
       businessImpact: z.string().describe("Impact on Business (e.g. High Storage Cost)")
-    }))
+    })),
+    techStack: z.object({
+      databases: z.array(z.object({
+        name: z.string().describe("Database name and version if mentioned (e.g. PostgreSQL 14, Redis 7)"),
+        summary: z.string().describe("One-liner on role: purpose, usage pattern")
+      })).describe("All backend databases in use"),
+      backendLanguages: z.array(z.object({
+        name: z.string().describe("Language/framework name (e.g. Java Spring Boot, Python FastAPI)"),
+        summary: z.string().describe("One-liner on role: what services/APIs are built with it")
+      })).describe("Backend programming languages and API frameworks"),
+      frontendTechnologies: z.array(z.object({
+        name: z.string().describe("Framework/library name (e.g. React, Angular, iOS Swift)"),
+        summary: z.string().describe("One-liner on role: web, mobile, or internal tool")
+      })).describe("Frontend and mobile technologies"),
+      messagingAndStreaming: z.array(z.object({
+        name: z.string().describe("Tool name (e.g. Apache Kafka, RabbitMQ, AWS Kinesis)"),
+        summary: z.string().describe("One-liner on role: event broker, streaming pipeline, pub/sub, etc.")
+      })).describe("Message brokers, event streaming and queue systems"),
+      aiStack: z.object({
+        llms: z.array(z.object({
+          name: z.string().describe("Model name (e.g. GPT-4o, Claude 3.5, Gemini 1.5 Pro)"),
+          summary: z.string().describe("One-liner: what the model is used for in the product")
+        })).describe("Large language models in use or planned"),
+        embeddingModels: z.array(z.object({
+          name: z.string().describe("Model name (e.g. text-embedding-3-small, Cohere embed-v3)"),
+          summary: z.string().describe("One-liner: what is being embedded and why")
+        })).describe("Embedding models for vector search or semantic similarity"),
+        chunkingStrategy: z.string().optional().describe("How documents are split before embedding (e.g. fixed 512-token chunks, recursive paragraph splitting)"),
+        orchestrationFrameworks: z.array(z.object({
+          name: z.string().describe("Framework name (e.g. LangChain, LlamaIndex, Haystack, AutoGen)"),
+          summary: z.string().describe("One-liner on role: RAG pipeline, agent orchestration, etc.")
+        })).describe("AI orchestration and RAG frameworks"),
+        preferredLanguage: z.string().optional().describe("Primary language for AI/ML workloads (e.g. Python, TypeScript)"),
+        multimodality: z.string().optional().describe("Any multimodal inputs/outputs discussed (e.g. image, audio, video ingestion)"),
+        otherAITools: z.array(z.object({
+          name: z.string().describe("Tool name"),
+          summary: z.string().describe("One-liner on role")
+        })).describe("Other AI tooling: guardrails, eval frameworks, fine-tuning, inference servers, etc.")
+      }).describe("AI/ML stack — only populate if discussed in the transcript")
+    }).describe("Current technology stack across all layers")
   }),
   futureState: z.object({
     futureStateDescription: z.string(),

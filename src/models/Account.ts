@@ -61,6 +61,7 @@ const AccountSchema: Schema = new Schema({
     totalWorkloads: { type: Number },
     completedWorkloads: { type: Number },
   },
+  // workloadTracking has been moved to the dedicated Workload collection
   usage: {
     promptTokens: { type: Number },
     completionTokens: { type: Number },

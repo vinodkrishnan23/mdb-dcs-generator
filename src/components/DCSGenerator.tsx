@@ -2,28 +2,37 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { generateDCS, resetAccountStatus } from '@/app/actions';
-import { RefreshCw, Zap, RotateCcw, AlertTriangle } from 'lucide-react';
+import { generateDCS, resetAccountStatus, forceRegenerateDCS } from '@/app/actions';
+import { RefreshCw, Zap, RotateCcw, AlertTriangle, CheckCircle2, FlameKindling } from 'lucide-react';
 
 interface DCSGeneratorProps {
   accountId: string;
   status: string;
   hasTranscripts: boolean;
+  allTranscriptsProcessed: boolean;
 }
 
-export function DCSGenerator({ accountId, status, hasTranscripts }: DCSGeneratorProps) {
+export function DCSGenerator({ accountId, status, hasTranscripts, allTranscriptsProcessed }: DCSGeneratorProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showAllProcessedHint, setShowAllProcessedHint] = useState(false);
+  const [showForceConfirm, setShowForceConfirm] = useState(false);
+  const [isForcing, setIsForcing] = useState(false);
   const router = useRouter();
 
   const handleGenerate = async () => {
     if (!hasTranscripts || status === 'PROCESSING') return;
+    setShowAllProcessedHint(false);
     setIsGenerating(true);
     const result = await generateDCS(accountId);
     if (!result.success) {
-      alert('Failed to generate DCS: ' + result.error);
+      alert('Failed to generate DCS: ' + (result as any).error);
       setIsGenerating(false);
+    } else if ((result as any).allProcessed) {
+      // All transcripts already processed — no new work to do
+      setIsGenerating(false);
+      setShowAllProcessedHint(true);
     } else {
       router.refresh();
     }
@@ -38,9 +47,22 @@ export function DCSGenerator({ accountId, status, hasTranscripts }: DCSGenerator
     router.refresh();
   };
 
-  const isProcessing = status === 'PROCESSING' || isGenerating;
-  const canGenerate  = hasTranscripts && !isProcessing;
+  const handleForceRegenerate = async () => {
+    setShowForceConfirm(false);
+    setIsForcing(true);
+    const result = await forceRegenerateDCS(accountId);
+    if (!result.success) {
+      alert('Failed to start force regeneration: ' + (result as any).error);
+      setIsForcing(false);
+    } else {
+      router.refresh();
+    }
+  };
+
+  const isProcessing = status === 'PROCESSING' || isGenerating || isForcing;
+  const canGenerate  = hasTranscripts && !isProcessing && !allTranscriptsProcessed;
   const showReset    = status === 'PROCESSING' || status === 'FAILED';
+  const canForce     = hasTranscripts && !isProcessing && (allTranscriptsProcessed || status === 'COMPLETED');
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
@@ -73,8 +95,46 @@ export function DCSGenerator({ accountId, status, hasTranscripts }: DCSGenerator
             Upload at least one transcript first
           </p>
         )}
+        {(allTranscriptsProcessed || showAllProcessedHint) && !isProcessing && (
+          <p className="text-xs text-emerald-700 flex items-center gap-1.5 justify-center text-center">
+            <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+            All transcripts have been processed. Upload a new transcript to regenerate the DCS.
+          </p>
+        )}
         {status === 'FAILED' && (
           <p className="text-xs text-red-600 text-center">Generation failed — reset and try again.</p>
+        )}
+
+        {/* Force Regenerate */}
+        {canForce && (
+          !showForceConfirm ? (
+            <button
+              onClick={() => setShowForceConfirm(true)}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-amber-600 hover:text-amber-700 hover:bg-amber-50 border border-amber-200 hover:border-amber-300 transition-colors"
+            >
+              <FlameKindling className="w-3.5 h-3.5" />
+              Force Regenerate All
+            </button>
+          ) : (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
+              <p className="text-xs text-amber-800 font-medium">This will reprocess all transcripts from scratch and replace the existing DCS. Continue?</p>
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => setShowForceConfirm(false)}
+                  className="px-3 py-1.5 text-xs font-medium bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleForceRegenerate}
+                  disabled={isForcing}
+                  className="px-3 py-1.5 text-xs font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {isForcing ? <><RefreshCw className="w-3 h-3 animate-spin" /> Starting…</> : 'Yes, Regenerate'}
+                </button>
+              </div>
+            </div>
+          )
         )}
 
         {/* Reset */}

@@ -8,6 +8,8 @@ import { generateObject } from 'ai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { technicalSchema, commercialSchema, strategySchema, routerSchema, mongodbContributionSchema, type DCSData } from '@/lib/schemas';
 import { z } from 'zod';
+import Workload from '@/models/Workload';
+import AgentLog from '@/models/AgentLog';
 
 // Configure Google AI
 const googleAI = createGoogleGenerativeAI({
@@ -72,14 +74,35 @@ export async function uploadTranscript(accountId: string, fileContent: string, f
 export async function generateDCS(accountId: string) {
   try {
     await dbConnect();
-    
+
+    // If every transcript has already been processed, nothing to do
+    const pendingCount = await Transcript.countDocuments({ accountId, processedForDcs: { $ne: true } });
+    if (pendingCount === 0) {
+      return { success: true as const, allProcessed: true as const };
+    }
+
+    // Delete any stale workloads and agent logs from previous runs
+    await Promise.all([
+      Workload.deleteMany({ accountId }),
+      AgentLog.deleteMany({ accountId }),
+    ]);
+
+    // Reset all transcripts (including previously processed ones) so everything
+    // is re-derived consistently with the new transcript set
+    await Transcript.updateMany(
+      { accountId },
+      { $set: { processedForDcs: false }, $unset: { processedAt: '' } }
+    );
+
     // Set status to PROCESSING with router step
     await Account.findByIdAndUpdate(
-      accountId, 
-      { 
+      accountId,
+      {
         status: 'PROCESSING',
         progressStep: 'router',
-        progressDetails: {}
+        progressDetails: {},
+        dcsData: [],
+        usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, estimatedCost: 0 },
       }
     );
     
@@ -119,29 +142,278 @@ export async function resetAccountStatus(accountId: string) {
   }
 }
 
-async function processDCSGeneration(accountId: string) {
+export async function forceRegenerateDCS(accountId: string) {
   try {
     await dbConnect();
 
-    // Fetch all transcripts for this account
-    const account = await Account.findById(accountId).populate('transcriptIds');
-    
-    if (!account || !account.transcriptIds || account.transcriptIds.length === 0) {
-      throw new Error('No transcripts found for this account');
+    // Mark every transcript as unprocessed so they all get reprocessed
+    await Transcript.updateMany(
+      { accountId },
+      { $set: { processedForDcs: false }, $unset: { processedAt: '' } }
+    );
+
+    // Delete all existing Workload documents and agent logs for this account
+    await Promise.all([
+      Workload.deleteMany({ accountId }),
+      AgentLog.deleteMany({ accountId }),
+    ]);
+
+    // Clear the denormalised DCS snapshot on the Account
+    await Account.findByIdAndUpdate(accountId, {
+      status: 'PROCESSING',
+      dcsData: [],
+      progressStep: 'router',
+      progressDetails: {},
+      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, estimatedCost: 0 },
+    });
+
+    revalidatePath(`/account/${accountId}`);
+
+    // Kick off background regeneration
+    processDCSGeneration(accountId).catch(error => {
+      console.error('Error in force DCS regeneration:', error);
+      Account.findByIdAndUpdate(accountId, { status: 'IDLE' }).catch(console.error);
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error forcing DCS regeneration:', error);
+    return { success: false, error: 'Failed to start force regeneration' };
+  }
+}
+
+// ─── Utility Types & Functions ───────────────────────────────────────────────
+
+const COST_PER_M_INPUT  = 1.25;  // Gemini 2.5 Pro — $ per 1M input tokens
+const COST_PER_M_OUTPUT = 10.0;  // Gemini 2.5 Pro — $ per 1M output tokens
+
+/**
+ * Persists a single agent call to the agent_logs collection AND atomically
+ * increments the account's running usage counters via $inc.
+ * Sequential callers should await this; parallel callers can fire-and-forget.
+ */
+async function logAgentCall({
+  accountId,
+  transcriptId,
+  transcriptName,
+  workloadName,
+  agentType,
+  usage,
+  durationMs,
+}: {
+  accountId: string;
+  transcriptId: string;
+  transcriptName: string;
+  workloadName?: string;
+  agentType: string;
+  usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+  durationMs: number;
+}) {
+  const promptTokens     = usage?.inputTokens    ?? 0;
+  const completionTokens = usage?.outputTokens   ?? 0;
+  const totalTokens      = usage?.totalTokens    ?? 0;
+  const estimatedCost    =
+    (promptTokens     / 1_000_000) * COST_PER_M_INPUT +
+    (completionTokens / 1_000_000) * COST_PER_M_OUTPUT;
+
+  await Promise.all([
+    AgentLog.create({
+      accountId, transcriptId, transcriptName, workloadName, agentType,
+      promptTokens, completionTokens, totalTokens, estimatedCost, durationMs,
+    }),
+    Account.findByIdAndUpdate(accountId, {
+      $inc: {
+        'usage.promptTokens':     promptTokens,
+        'usage.completionTokens': completionTokens,
+        'usage.totalTokens':      totalTokens,
+        'usage.estimatedCost':    estimatedCost,
+      },
+    }),
+  ]);
+}
+
+function normalizeWorkloadName(name: string) {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\b(app|application|project|service|platform|system|workload)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+type RouterOpportunity = z.infer<typeof routerSchema>['opportunities'][number];
+
+function dedupeRouterOpportunities(opportunities: RouterOpportunity[]) {
+  const byKey = new Map<string, RouterOpportunity>();
+  for (const opp of opportunities) {
+    const key = normalizeWorkloadName(opp.workloadName);
+    if (!key) continue;
+    const existing = byKey.get(key);
+    if (!existing || opp.confidenceScore > existing.confidenceScore) {
+      byKey.set(key, opp);
+    }
+  }
+  return Array.from(byKey.values());
+}
+
+/**
+ * Semantic workload matching.
+ * 1. Fast path: exact normalized-key match (free, no API call).
+ * 2. Semantic path: single LLM call to detect same-project name variations
+ *    (e.g. "Ticketing App" == "Ticketing System").
+ * Returns the workloadId of the matched existing workload, or null if new.
+ */
+const WORKLOAD_MATCH_SCHEMA = z.object({
+  matchedWorkloadId: z
+    .string()
+    .optional()
+    .describe(
+      'workloadId of the existing workload this maps to. Omit entirely if this is a new distinct workload.'
+    ),
+});
+
+async function findMatchingWorkload(
+  newWorkloadName: string,
+  newContextDescription: string,
+  existingWorkloads: Array<{ workloadId: string; workloadName: string; normalizedKey: string }>
+): Promise<{ matchedId: string | null; usage?: any }> {
+  if (existingWorkloads.length === 0) return { matchedId: null };
+
+  // Fast path: exact normalized-key match (no LLM call needed)
+  const normKey = normalizeWorkloadName(newWorkloadName);
+  const exactMatch = existingWorkloads.find(w => w.normalizedKey === normKey);
+  if (exactMatch) return { matchedId: exactMatch.workloadId };
+
+  // Semantic path: LLM decides if the new workload is the same project as any existing one
+  try {
+    const result = await generateObject({
+      model: googleAI('gemini-2.5-pro'),
+      schema: WORKLOAD_MATCH_SCHEMA,
+      experimental_telemetry: { isEnabled: true },
+      prompt: `You are a workload deduplication assistant.
+
+A new workload was identified from a sales transcript:
+  Name: "${newWorkloadName}"
+  Context: "${newContextDescription}"
+
+Compare it to the existing tracked workloads and decide if it refers to the SAME project/application as any of them.
+
+EXISTING WORKLOADS:
+${existingWorkloads.map(w => `  - workloadId: "${w.workloadId}"  name: "${w.workloadName}"`).join('\n')}
+
+Rules:
+1. Match ONLY if they are clearly the same application (e.g. "Ticketing App" and "Ticketing System" are the same; "Order Management" and "Analytics Dashboard" are not).
+2. Minor name variations (abbreviations, subtitles, re-wordings) should still match.
+3. If there is any doubt, do NOT match — omit matchedWorkloadId.
+4. Return the matchedWorkloadId of the best match, or omit it if this is a new distinct workload.`,
+    });
+    return { matchedId: result.object.matchedWorkloadId ?? null, usage: result.usage };
+  } catch {
+    return { matchedId: null };
+  }
+}
+
+const MERGED_WORKLOAD_SCHEMA = z.object({
+  technical: technicalSchema,
+  commercial: commercialSchema,
+  strategy: strategySchema,
+  mongodbContribution: mongodbContributionSchema,
+});
+
+async function mergeWorkloadDcs(existing: DCSData, incoming: DCSData): Promise<{ dcs: DCSData; usage?: any }> {
+  try {
+    const mergeResult = await generateObject({
+      model: googleAI('gemini-2.5-pro'),
+      schema: MERGED_WORKLOAD_SCHEMA,
+      experimental_telemetry: { isEnabled: true },
+      prompt: `You are a DCS merger.
+
+Merge the existing and incoming workload analysis into one consolidated object.
+Rules:
+1. Preserve factual details from both inputs.
+2. Keep arrays deduplicated and additive where possible.
+3. Keep summaries coherent and avoid contradictions.
+4. Do not invent facts not present in either input.
+
+EXISTING:
+${JSON.stringify(existing, null, 2)}
+
+INCOMING:
+${JSON.stringify(incoming, null, 2)}`,
+    });
+    return {
+      dcs: {
+        workloadId: existing.workloadId,
+        workloadName: existing.workloadName,
+        technical: mergeResult.object.technical,
+        commercial: mergeResult.object.commercial,
+        strategy: mergeResult.object.strategy,
+        mongodbContribution: mergeResult.object.mongodbContribution,
+      } as DCSData,
+      usage: mergeResult.usage,
+    };
+  } catch {
+    return { dcs: { ...incoming, workloadId: existing.workloadId, workloadName: existing.workloadName } };
+  }
+}
+
+// ─── Incremental DCS Generation ─────────────────────────────────────────────────────
+// Each unprocessed transcript is processed sequentially.
+// For every workload identified by the Router Agent:
+//   1. Normalized-key exact match is tried first (free).
+//   2. LLM semantic match is attempted to catch name variations.
+//   3. Match found → merge DCS into existing Workload document.
+//   4. No match → create a new Workload document.
+// Account.dcsData is rebuilt as a denormalised snapshot after every transcript.
+
+async function processDCSGeneration(accountId: string) {
+
+  try {
+    await dbConnect();
+
+    const account = await Account.findById(accountId);
+    if (!account) throw new Error('Account not found');
+
+    const transcripts = await Transcript.find({ accountId }).sort({ createdAt: 1 });
+    if (!transcripts.length) throw new Error('No transcripts found for this account');
+
+    const pendingTranscripts = transcripts.filter(t => !(t as any).processedForDcs);
+
+    if (pendingTranscripts.length === 0) {
+      await Account.findByIdAndUpdate(accountId, {
+        status: 'COMPLETED',
+        progressStep: '',
+        progressDetails: {},
+      });
+      return;
     }
 
-    // Concatenate all transcript text
-    const transcripts = account.transcriptIds as any[];
-    const combinedText = transcripts.map((transcript: any) => transcript.fullText).join('\n\n--- TRANSCRIPT SEPARATOR ---\n\n');
+    // Load all existing Workload documents — live source of truth for similarity checks
+    const existingWorkloads = await Workload.find({ accountId }).lean() as any[];
 
-    console.log('=== PASS 1: Router Agent - Identifying Workloads ===');
-    
-    // PASS 1: Router Agent - Identify distinct workloads
-    const routerResult = await generateObject({
-      model: googleAI('gemini-2.5-pro'),
-      schema: routerSchema,
-      experimental_telemetry: { isEnabled: true },
-      prompt: `You are a Sales Discovery Analyst. Your job is to identify DISTINCT sales opportunities (workloads/projects) discussed in these transcripts.
+    for (let ti = 0; ti < pendingTranscripts.length; ti++) {
+      const transcript     = pendingTranscripts[ti];
+      const transcriptId   = transcript._id.toString();
+      const transcriptName = transcript.filename;
+      console.log(`\n=== Processing Transcript ${ti + 1}/${pendingTranscripts.length}: ${transcriptName} ===`);
+
+      await Account.findByIdAndUpdate(accountId, {
+        progressStep: 'router',
+        progressDetails: {
+          currentTranscript: transcriptName,
+          transcriptProgress: `${ti + 1}/${pendingTranscripts.length}`,
+        },
+      } as any);
+
+      // ── Pass 1: Router ────────────────────────────────────────────────────────
+      console.log('=== PASS 1: Router Agent - Identifying Workloads ===');
+
+      const routerT0 = Date.now();
+      const routerResult = await generateObject({
+        model: googleAI('gemini-2.5-pro'),
+        schema: routerSchema,
+        experimental_telemetry: { isEnabled: true },
+        prompt: `You are a Sales Discovery Analyst. Identify DISTINCT workloads in this single transcript.
 
 **Rules:**
 1. Each workload is a SEPARATE software application or project (e.g., "E-Commerce Platform", "Analytics Dashboard", "Mobile Banking App").
@@ -149,85 +421,65 @@ async function processDCSGeneration(accountId: string) {
 3. If the transcript is just "general MongoDB discussion" with no specific project, return an empty array.
 4. Assign a confidence score (0-1) based on how much technical/commercial detail is present for that workload.
 
-**Output Format:**
-Return a list of opportunities with:
-- workloadName: Clear, descriptive name
-- contextDescription: 1-sentence summary to help scope extraction
-- confidenceScore: 0-1 (only include if you have real details, not just mentions)
-
 TRANSCRIPT:
-${combinedText}`
-    });
-
-    console.log('Router found opportunities:', routerResult.object.opportunities);
-
-    // Filter out low-confidence workloads (< 0.6)
-    const validOpportunities = routerResult.object.opportunities.filter(
-      opp => opp.confidenceScore >= 0.6
-    );
-
-    console.log(`Filtered to ${validOpportunities.length} valid opportunities (confidence >= 0.6)`);
-
-    // Update progress with identified workloads count
-    await Account.findByIdAndUpdate(accountId, {
-      progressStep: 'router',
-      progressDetails: {
-        totalWorkloads: validOpportunities.length,
-        completedWorkloads: 0
-      }
-    });
-
-    if (validOpportunities.length === 0) {
-      // No valid workloads found
-      await Account.findByIdAndUpdate(accountId, {
-        dcsData: [],
-        status: 'COMPLETED',
-        progressStep: '',
-        progressDetails: {},
-        usage: {
-          promptTokens: routerResult.usage?.inputTokens || 0,
-          completionTokens: routerResult.usage?.outputTokens || 0,
-          totalTokens: routerResult.usage?.totalTokens || 0,
-          estimatedCost: ((routerResult.usage?.totalTokens || 0) / 1000) * 0.001
-        }
+${transcript.fullText}`,
       });
-      return;
-    }
+      await logAgentCall({ accountId, transcriptId, transcriptName, agentType: 'router', usage: routerResult.usage, durationMs: Date.now() - routerT0 });
 
-    console.log('=== PASS 2: Extracting Details for Each Workload ===');
+      const validOpportunities = dedupeRouterOpportunities(
+        routerResult.object.opportunities.filter(opp => opp.confidenceScore >= 0.6)
+      );
 
-    // Track total usage across all passes
-    let totalInputTokens = routerResult.usage?.inputTokens || 0;
-    let totalOutputTokens = routerResult.usage?.outputTokens || 0;
-    let totalTokens = routerResult.usage?.totalTokens || 0;
+      console.log(`  Router found ${validOpportunities.length} valid workload(s) (confidence >= 0.6)`);
 
-    // PASS 2: Process all workloads in parallel
-    const workloadPromises = validOpportunities.map(async (opp, index) => {
-      console.log(`\n--- Processing: ${opp.workloadName} ---`);
-      
-      const workloadId = crypto.randomUUID();
-      
-      // Update progress: Slicer for this workload
       await Account.findByIdAndUpdate(accountId, {
-        progressStep: 'slicer',
         progressDetails: {
-          currentWorkload: opp.workloadName,
+          currentTranscript: transcriptName,
+          transcriptProgress: `${ti + 1}/${pendingTranscripts.length}`,
           totalWorkloads: validOpportunities.length,
-          completedWorkloads: index
-        }
-      });
-      
-      // ---------------------------------------------
-      // STEP 2a: THE SLICER AGENT (The Firewall)
-      // ---------------------------------------------
-      console.log(`  -> Running Slicer Agent for: ${opp.workloadName}`);
-      const slicerResult = await generateObject({
-        model: googleAI('gemini-2.5-pro'),
-        schema: z.object({
-          sanitizedContext: z.string().describe("The rewritten transcript containing ONLY information relevant to the specified workload.")
-        }),
-        experimental_telemetry: { isEnabled: true },
-        prompt: `You are a Context Filter. Read the transcript below.
+          completedWorkloads: 0,
+        },
+      } as any);
+
+      // ── Pass 2: All workloads in parallel — Slicer → 4 Agents → Semantic Match ──
+      // Each workload's AI calls are independent, so we fan out with Promise.all.
+      // Semantic matching uses the pre-transcript existingWorkloads snapshot so
+      // all workloads see the same base state regardless of execution order.
+      console.log(`  Running ${validOpportunities.length} workload(s) in parallel...`);
+
+      await Account.findByIdAndUpdate(accountId, {
+        progressStep: 'agents',
+        progressDetails: {
+          currentTranscript: transcriptName,
+          totalWorkloads: validOpportunities.length,
+          completedWorkloads: 0,
+          transcriptProgress: `${ti + 1}/${pendingTranscripts.length}`,
+        },
+      } as any);
+
+      // Snapshot existingWorkloads before this transcript so all parallel
+      // workload branches see the same base state for semantic matching.
+      const existingWorkloadsSnapshot = existingWorkloads.map(w => ({
+        workloadId: w.workloadId,
+        workloadName: w.workloadName,
+        normalizedKey: w.normalizedKey,
+      }));
+
+      const parallelResults = await Promise.all(
+        validOpportunities.map(async (opp) => {
+          console.log(`\n  --- Starting workload: "${opp.workloadName}" ---`);
+
+          // Step 2a: Slicer
+          const slicerT0 = Date.now();
+          const slicerResult = await generateObject({
+            model: googleAI('gemini-2.5-pro'),
+            schema: z.object({
+              sanitizedContext: z.string().describe(
+                'The rewritten transcript containing ONLY information relevant to the specified workload.'
+              ),
+            }),
+            experimental_telemetry: { isEnabled: true },
+            prompt: `You are a Context Filter. Read the transcript below.
 
 Identify who is the 'Customer' and who is the 'MongoDB Seller/SA'.
 
@@ -246,294 +498,252 @@ ${opp.contextDescription}
 5. RETURN only the filtered text with clear speaker labels.
 
 **ORIGINAL TRANSCRIPT:**
-${combinedText}`
-      });
+${transcript.fullText}`,
+          });
+          const sanitizedContext = slicerResult.object.sanitizedContext;
+          console.log(`  Slicer done: "${opp.workloadName}" (${sanitizedContext.length} chars)`);
+          await logAgentCall({ accountId, transcriptId, transcriptName, workloadName: opp.workloadName, agentType: 'slicer', usage: slicerResult.usage, durationMs: Date.now() - slicerT0 });
 
-      const sanitizedContext = slicerResult.object.sanitizedContext;
-      console.log(`  -> Slicer completed. Sanitized context length: ${sanitizedContext.length} chars`);
-
-      // Update progress: Running 3 agents
-      await Account.findByIdAndUpdate(accountId, {
-        progressStep: 'agents',
-        progressDetails: {
-          currentWorkload: opp.workloadName,
-          totalWorkloads: validOpportunities.length,
-          completedWorkloads: index
-        }
-      });
-
-      // ---------------------------------------------
-      // STEP 2b: THE SCOPED EXTRACTION CHAIN
-      // ---------------------------------------------
-      // Run 3 agents in parallel for this workload using sanitizedContext (customer-only)
-      const [technicalResult, commercialResult, strategyResult] = await Promise.all([
-        // Agent 1: Technical Architect
-        generateObject({
-          model: googleAI('gemini-2.5-pro'),
-          schema: technicalSchema,
-          experimental_telemetry: { isEnabled: true },
-          prompt: `You are a Principal Architect. Extract ONLY technical evidence: specific instance types (e.g. m5.large), database versions, topology (Replica Set vs Sharded), and metrics (latency, throughput). Ignore sales politics.
+          // Step 2b: 4 Agents + semantic matching — all in parallel
+          // Each call fires logAgentCall fire-and-forget as soon as it completes,
+          // updating the Account.usage $inc in real time for the polling UI.
+          const agentsT0 = Date.now();
+          const [technicalResult, commercialResult, strategyResult, contributionResult, matchedWorkloadId] =
+            await Promise.all([
+              // Agent 1: Technical Architect
+              generateObject({
+                model: googleAI('gemini-2.5-pro'),
+                schema: technicalSchema,
+                experimental_telemetry: { isEnabled: true },
+                prompt: `You are a Principal Architect. Extract ONLY technical evidence: specific instance types (e.g. m5.large), database versions, topology (Replica Set vs Sharded), and metrics (latency, throughput). Ignore sales politics.
 
 CRITICAL GROUNDING RULE: You must extract information strictly from the CUSTOMER'S perspective.
 - If the MongoDB Rep suggests a feature (e.g., 'You should use Time Series'), DO NOT add it to 'Future State' unless the Customer explicitly agrees or asks for it.
 - Current State and Pain Points must be facts stated by the Customer, not assumptions made by the Rep.
 
 **B. TECHNICAL DEEP DIVE (Current vs. Future)**
-- **Current State Description:** Provide a detailed explanation of the current solution and architecture, including how the system works today, what technologies are in use, and the overall technical landscape.
-- **Current Architecture:**
-  - **Topology:** Standalone? Replica Set? Sharded?
-  - **Hardware:** Instance types (e.g., r5.large), RAM, CPU.
-  - **Data Flow:** Ingest -> Process -> Store -> Consume.
-  - **Metrics:** Data Size (GB/TB), Latency (ms), Throughput (RPS).
-- **Negative Consequences:**
-  - Link **Technical Root Cause** (e.g., "Collection Level Locking") -> **Business Impact** (e.g., "User Checkout Failure").
-- **Future State:**
-  - **Proposed Solution:** Provide a detailed explanation of the proposed MongoDB Atlas solution, including implementation approach, migration strategy, configuration recommendations, deployment plan, and step-by-step approach.
-  - **Specific Features:** Time Series, Atlas Search, Vector Search, Online Archive.
-  - **Outcomes:** Measurable success metrics (e.g., "P99 < 10ms").
+- **Current State Description:** Provide a detailed explanation of the current solution and architecture.
+- **Current Architecture:** Topology, Hardware (instance types, RAM, CPU), Data Flow (Ingest->Process->Store->Consume), Metrics (GB/TB, ms, RPS).
+- **Negative Consequences:** Technical Root Cause -> Business Impact.
+- **Future State:** Proposed Solution (implementation + migration strategy), Specific Features (Time Series, Atlas Search, Vector Search, Online Archive), Outcomes.
+
+**E. TECH STACK (Current — extract from what the customer mentions)**
+Extract each layer of the customer's current tech stack. For every item provide a one-liner describing its role. Only include items that are explicitly mentioned or strongly implied by the customer.
+- **Databases:** All databases in use (e.g. PostgreSQL 14 — primary OLTP store, Redis — session cache).
+- **Backend Languages / API Frameworks:** Languages and frameworks powering services (e.g. Java Spring Boot — core microservices, Python FastAPI — ML serving layer).
+- **Frontend Technologies:** Web/mobile UI frameworks (e.g. React — customer portal, iOS Swift — mobile app).
+- **Messaging & Streaming:** Event brokers, queues, streaming platforms (e.g. Apache Kafka — event backbone, RabbitMQ — task queue).
+- **AI Stack (only if discussed):**
+  - LLMs in use or planned (name + what they're used for)
+  - Embedding models (name + what is being embedded)
+  - Chunking strategy (how documents are split before embedding)
+  - Orchestration frameworks (LangChain, LlamaIndex, Haystack, AutoGen, etc. + role)
+  - Preferred language for AI/ML workloads
+  - Multimodality (any image/audio/video inputs discussed)
+  - Other AI tooling (guardrails, eval frameworks, fine-tuning, inference servers)
+- **Other tooling** worth noting (CI/CD, observability, infrastructure-as-code, etc.)
 
 **C. USE CASE SUMMARY**
-- **Detailed Use Case:** Provide a comprehensive summary describing:
-  - **Application Purpose:** What the application does and who the end users are
-  - **Business Problem:** The business problem it solves
-  - **Key Workflows:** Key workflows and user interactions
-  - **Data Patterns:** Read-heavy, write-heavy, real-time requirements, caching strategies
-  - **Scale Characteristics:** Scale and performance characteristics
+- Application Purpose, Business Problem, Key Workflows, Data Patterns, Scale Characteristics.
 
 **D. DATA FLOW DIAGRAM**
-- **Component Description:** Extract a list of all system components in the data flow:
-  - Client/User Interface layers (Web, Mobile, API consumers)
-  - Application/Service layers (Microservices, APIs, Backend services)
-  - Data layer (Current database, MongoDB Atlas target, caching layers)
-  - External integrations (Third-party APIs, Cloud services, Message queues)
-- **Flow Description:** Describe the data flow between components:
-  - How data enters the system (user actions, APIs, events)
-  - Processing and transformation steps
-  - Storage and retrieval patterns
-  - Output/consumption of data
-- **Volume & Velocity:** Key metrics for each flow (requests per second, data volume, latency requirements)
+- Components: Client/UI, Application/Service, Data, External Integration layers.
+- Flows: how data enters, is processed, stored, consumed.
+- Volume & Velocity metrics per flow.
 
-TRANSCRIPT:
-${sanitizedContext}`
-        }),
+TRANSCRIPT (workload-filtered):
+${sanitizedContext}`,
+              }).then(r => { logAgentCall({ accountId, transcriptId, transcriptName, workloadName: opp.workloadName, agentType: 'technical', usage: r.usage, durationMs: Date.now() - agentsT0 }).catch(console.error); return r; }),
 
-        // Agent 2: Commercial Manager
-        generateObject({
-          model: googleAI('gemini-2.5-pro'),
-          schema: commercialSchema,
-          experimental_telemetry: { isEnabled: true },
-          prompt: `You are a Sales Manager. Extract ONLY: Stakeholders (Buyer vs Champion), Partner ecosystem (Cloud/SI), and Timelines (Compelling Events). Ignore technical logs.
+              // Agent 2: Commercial Manager
+              generateObject({
+                model: googleAI('gemini-2.5-pro'),
+                schema: commercialSchema,
+                experimental_telemetry: { isEnabled: true },
+                prompt: `You are a Sales Manager. Extract ONLY: Stakeholders (Buyer vs Champion), Partner ecosystem (Cloud/SI), and Timelines. Ignore technical logs.
 
-**A. STAKEHOLDERS (The "Political Map")**
-- Ignore MongoDB attendees (we want to know about the customer's internal politics, not our own team).
-- Identify **Who reports to whom?** (e.g., "Engineering Manager reports to CTO").
-- Identify **Psychographics:** What gives them confidence? What are their "scars" (past failures)?
-- **Sentiment Analysis:** For non-MongoDB attendees, capture their sentiment and attitude (e.g., "Skeptical about migration", "Enthusiastic about new features", "Concerned about costs", "Supportive but needs proof").
-- **Role:** Distinguish between the "Economic Buyer" (Signer) and "Technical Champion" (User).
+**A. STAKEHOLDERS** — Who reports to whom, psychographics, sentiment analysis (skeptical/enthusiastic/concerned), Economic Buyer vs Technical Champion.
+**B. PARTNERS & EVALUATION** — Cloud provider + committed spend, SIs (design vs delivery), evaluation process (PoC -> Security -> Procurement -> Sign-off).
+**C. TIMELINE & URGENCY** — Exact launch date, Compelling Event, Consequence of Delay, ALL dates mentioned in the call with context.
 
-**B. PARTNERS & EVALUATION**
-- **Cloud:** AWS/Azure/GCP? Do they have a **Committed Spend** contract?
-- **SIs:** Are Accenture, TCS, or Infosys involved? Are they doing design or just delivery?
-- **Process:** What is the sequence? (PoC -> Security Review -> Procurement -> Sign-off).
+TRANSCRIPT (workload-filtered):
+${sanitizedContext}`,
+              }).then(r => { logAgentCall({ accountId, transcriptId, transcriptName, workloadName: opp.workloadName, agentType: 'commercial', usage: r.usage, durationMs: Date.now() - agentsT0 }).catch(console.error); return r; }),
 
-**C. TIMELINE & URGENCY**
-- **"No Date, No Deal":** Find the exact launch date.
-- **Compelling Event:** What happens if they miss it? (e.g., "Diwali Peak", "Black Friday", "Audit").
-- **Consequence of Delay:** "If we don't fix this by Oct 1st, we lose $50k/day."
-- **All Dates Discussed:** Capture ALL dates mentioned in the call with their context (e.g., "March 15 - PoC completion deadline", "April 1 - Security review", "Q2 - Budget approval cycle", "June 30 - Current license expiration").
+              // Agent 3: Deal Strategist
+              generateObject({
+                model: googleAI('gemini-2.5-pro'),
+                schema: strategySchema,
+                experimental_telemetry: { isEnabled: true },
+                prompt: `You are a Deal Strategist. Determine Sales Motion (Migrate/Replace/Launch/Select). Map pain points to Value Drivers (Compete, Save, Risk, Velocity).
 
-TRANSCRIPT:
-${sanitizedContext}`
-        }),
+CRITICAL GROUNDING RULE: '3 Whys' and 'Value Drivers' must represent the CUSTOMER'S actual internal motivations, NOT the MongoDB Rep's sales pitch.
+- If the Rep says 'MongoDB will save you money,' but the Customer never validates it, DO NOT list 'Save Money'. Mark it as MISSING.
 
-        // Agent 3: Deal Strategist
-        generateObject({
-          model: googleAI('gemini-2.5-pro'),
-          schema: strategySchema,
-          experimental_telemetry: { isEnabled: true },
-          prompt: `You are a Deal Strategist. Determine the Sales Motion (Migrate/Replace/Launch/Select) based on strict definitions. Map pain points to Value Drivers (Compete, Save, Risk, Velocity).
+**A. VALUE DRIVERS** — Compete/Revenue, Save Money, Reduce Risk, Dev Velocity.
+**B. SALES MOTION** — Migrate (from Community/DocDB/Cosmos), Replace (from RDBMS/Cassandra), Launch (greenfield), Select (already chosen MongoDB).
+**C. TIGER SALES ROUTE** — Classic / Sprint / Fast.
+**D. THE 3 WHYS** — Why Anything / Why MongoDB / Why Now. Each: FOUND / PARTIAL / MISSING.
+**E. GAP ANALYSIS** — 3-5 hyper-specific discovery questions to fill gaps in the 3 Whys.
+**F. NEXT STEPS** — 3-7 actions with category, owner, timeline, priority.
 
-CRITICAL GROUNDING RULE: The '3 Whys' and 'Value Drivers' must represent the CUSTOMER'S actual internal motivations, NOT the MongoDB Rep's sales pitch.
-- If the Rep says, 'MongoDB will save you money,' but the Customer never validates it, DO NOT list 'Save Money'. Mark it as MISSING.
-- Only extract Challenges, Objectives, and Compelling Events that the CUSTOMER explicitly stated or firmly agreed to.
+TRANSCRIPT (workload-filtered):
+${sanitizedContext}`,
+              }).then(r => { logAgentCall({ accountId, transcriptId, transcriptName, workloadName: opp.workloadName, agentType: 'strategy', usage: r.usage, durationMs: Date.now() - agentsT0 }).catch(console.error); return r; }),
 
-**A. VALUE DRIVERS (The "Why Now")**
-Map every pain point to one of these 4 pillars:
-1. **Compete / Revenue:** Maximize competitive advantage.
-2. **Save Money:** Lower TCO (Storage, Licensing, Ops hours).
-3. **Reduce Risk:** Compliance, Security, Uptime (SLA).
-4. **Dev Velocity:** Accelerate time-to-value (shorter release cycles).
-
-**B. SALES MOTION LOGIC (Strict Definitions)**
-- **Migrate:** User is moving TO Atlas FROM MongoDB Community, AWS DocumentDB, or Azure Cosmos DB.
-- **Replace:** User is moving TO Atlas FROM RDBMS (Oracle/SQL), Cassandra, or Couchbase.
-- **Launch:** New application/greenfield project. Evaluating multiple DBs.
-- **Select:** New application. Has *already selected* MongoDB but needs help deploying.
-
-**C. TIGER SALES ROUTE**
-- **Classic:** Complex decision, multiple stakeholders, competitive.
-- **Sprint:** Urgent, single decision maker, leaning MongoDB.
-- **Fast:** Decision made, just need to close/consume.
-
-**D. THE 3 WHYS (Strict Qualification)**
-1. **Why Anything?** (Pain & Objective): Look for 'Bleeding Neck' issues. Why can't they stay on the current system?
-   - *If found:* Extract specific pains (e.g., 'Crashes every Friday') and objectives (e.g., 'Scale to 1M users').
-   - *If partial:* You see a pain but no clear objective, or vice versa. Mark status as PARTIAL and note what's missing.
-   - *Did customer admitted this is a pain they need to solve?* If they said "We can live with this" or "This is just a nice-to-have", mark as MISSING and note what's missing.
-   - *If missing:* Mark status as MISSING and note what's missing.
-2. **Why MongoDB?** (Differentiation): Why us? Why not Postgres or DynamoDB or any other database?
-   - *If found:* Map features to pains (e.g., 'Relational Migrator reduces risk') and note differentiators.
-   - *If partial:* You see a reason why they want to change but no clear link to MongoDB's strengths. Mark status as PARTIAL and note what's missing.
-   - *Did customer admitted MongoDB is the best solution?* If they said "We are also considering Postgres/DynamoDB/DocumentDB or any other database", mark as PARTIAL and note what's missing. If they said "We don't see a difference between MongoDB and competitors", mark as MISSING and note what's missing.
-   - *If missing:* Mark status as MISSING and note what's missing.
-3. **Why Now?** (Urgency): Is there a Compelling Event?
-   - *If found:* Extract the Date and the Event (e.g., 'Audit on Nov 1st'). 'Q4' is not specific enough.
-   - *If partial:* You see a date but no compelling event, or an event but no date. Mark status as PARTIAL and note what's missing.
-   - *Did customer admit there is a real urgency?* If they said "We have a long runway" or "This is not urgent", mark as MISSING and note what's missing and note what's missing.
-   - *If missing:* Mark status as MISSING. Note what's needed.
-
-**E. GAP ANALYSIS (The Coach)**
-Based *strictly* on what is MISSING in the 3 Whys above, generate 3-5 Discovery Questions for the Sales Rep.
-- **Bad Question:** 'Why do you want to move now?'
-- **Good Question:** 'You mentioned the Oracle license expires in Q4—what is the specific date, and what is the financial penalty if we miss that window?'
-- **Good Question:** 'You mentioned latency is an issue—how is that specifically impacting your mobile users' cart abandonment rate?'
-
-**F. NEXT STEPS**
-Based on the deal stage, timeline, and gaps identified, provide 3-7 concrete, actionable next steps for the sales team:
-- **Technical Actions:** PoC requirements, architecture review sessions, migration planning workshops
-- **Commercial Actions:** Executive briefings, pricing discussions, contract negotiations
-- **Enablement:** Documentation needed, training sessions, customer success planning
-- **Qualification:** Information gathering tasks based on gaps in the 3 Whys
-- **Timeline:** Associate each action with a suggested timeframe (e.g., 'Week 1', 'Before PoC', 'Q1 2026')
-- **Owner:** Suggest who should drive each action (Sales Rep, SE, Account Executive, Partner)
-- **Priority:** Mark each action as High, Medium, or Low priority based on urgency and impact
-
-TRANSCRIPT:
-${sanitizedContext}`
-        }),
-
-      ]);
-
-      // Merge into DCS object and return with usage
-      const dcsData: DCSData = {
-        workloadId,
-        workloadName: opp.workloadName,
-        technical: technicalResult.object,
-        commercial: commercialResult.object,
-        strategy: strategyResult.object
-      };
-
-      console.log(`✓ Completed: ${opp.workloadName}`);
-
-      return {
-        dcsData,
-        usage: {
-          inputTokens: (slicerResult.usage?.inputTokens || 0) + 
-                      (technicalResult.usage?.inputTokens || 0) + 
-                      (commercialResult.usage?.inputTokens || 0) + 
-                      (strategyResult.usage?.inputTokens || 0),
-          outputTokens: (slicerResult.usage?.outputTokens || 0) + 
-                       (technicalResult.usage?.outputTokens || 0) + 
-                       (commercialResult.usage?.outputTokens || 0) + 
-                       (strategyResult.usage?.outputTokens || 0),
-          totalTokens: (slicerResult.usage?.totalTokens || 0) + 
-                      (technicalResult.usage?.totalTokens || 0) + 
-                      (commercialResult.usage?.totalTokens || 0) + 
-                      (strategyResult.usage?.totalTokens || 0)
-        }
-      };
-    });
-
-    // Wait for all workloads to complete
-    const workloadResults = await Promise.all(workloadPromises);
-
-    // Accumulate all usage and extract DCS data
-    const dcsArray: DCSData[] = [];
-    for (const result of workloadResults) {
-      dcsArray.push(result.dcsData);
-      totalInputTokens += result.usage.inputTokens;
-      totalOutputTokens += result.usage.outputTokens;
-      totalTokens += result.usage.totalTokens;
-    }
-
-    // -------------------------------------------------
-    // PASS 3: MongoDB Team Contribution (runs ONCE for the full transcript, shared across all workloads)
-    // -------------------------------------------------
-    console.log('\n=== PASS 3: MongoDB Contribution Analyst (once for full transcript) ===');
-    const mongodbContributionResult = await generateObject({
-      model: googleAI('gemini-2.5-pro'),
-      schema: mongodbContributionSchema,
-      experimental_telemetry: { isEnabled: true },
-      prompt: `You are a Conversation Analyst. Summarize what the MongoDB team (Sales Rep, Solutions Architect, AE, CSM) contributed across the ENTIRE conversation.
+              // Agent 4: MongoDB Contribution Analyst (workload-scoped)
+              generateObject({
+                model: googleAI('gemini-2.5-pro'),
+                schema: mongodbContributionSchema,
+                experimental_telemetry: { isEnabled: true },
+                prompt: `You are a Conversation Analyst. Summarize what the MongoDB team contributed for workload "${opp.workloadName}".
 
 CRITICAL RULES:
-- ONLY extract dialogue and contributions FROM MongoDB employees. DO NOT include customer statements.
-- MongoDB employees can be identified by: "we at MongoDB", "our Atlas product", "I work for MongoDB", or being labeled as "MongoDB Rep/SA/AE/CSM"
-- Do NOT attribute contributions to specific individuals — treat the MongoDB team as a collective unit
-- If names are not mentioned, use roles (e.g. "MongoDB SA", "MongoDB Sales Rep")
+- ONLY extract dialogue FROM MongoDB employees. DO NOT include customer statements.
+- Do NOT attribute contributions to specific individuals — treat the team as a collective unit.
 
-A. MONGODB TEAM MEMBERS
-- List who attended from MongoDB (names + roles if mentioned in the transcript)
+A. MONGODB TEAM MEMBERS — names + roles if mentioned.
+B. TECHNICAL CONTRIBUTIONS (team-level) — solutions/features suggested, for each note customer validation status.
+C. SALES MESSAGING (team-level) — value propositions, competitive positioning, pricing, for each note validation status.
+D. QUESTIONS ASKED (team-level) — discovery questions asked, customer response, effectiveness rating.
+E. UNVALIDATED SUGGESTIONS — features NOT confirmed by the customer + follow-up needed.
+F. OVERALL EFFECTIVENESS — Customer-Centric / Balanced / MongoDB-Centric, 2-3 sentence assessment, improvement areas.
 
-B. TECHNICAL CONTRIBUTIONS (as a team — no individual attribution)
-- What technical solutions/features did the MongoDB team suggest?
-- What architectural recommendations were made?
-- What demos, POCs, or technical next steps were proposed?
-- For EACH contribution, note if the customer validated/confirmed it or not
+TRANSCRIPT (workload-filtered):
+${sanitizedContext}`,
+              }).then(r => { logAgentCall({ accountId, transcriptId, transcriptName, workloadName: opp.workloadName, agentType: 'contribution', usage: r.usage, durationMs: Date.now() - agentsT0 }).catch(console.error); return r; }),
 
-C. SALES MESSAGING (as a team — no individual attribution)
-- What value propositions were presented?
-- What competitive positioning was used?
-- What pricing/commercial points were raised?
-- For EACH message, note if the customer validated/confirmed it or not
+              // Semantic workload matching runs concurrently with the 4 agents.
+              // Uses pre-transcript snapshot — safe for all parallel branches.
+              findMatchingWorkload(
+                opp.workloadName,
+                opp.contextDescription,
+                existingWorkloadsSnapshot
+              ).then(({ matchedId, usage }) => {
+                if (usage) logAgentCall({ accountId, transcriptId, transcriptName, workloadName: opp.workloadName, agentType: 'matcher', usage, durationMs: Date.now() - agentsT0 }).catch(console.error);
+                return matchedId;
+              }),
+            ]);
 
-D. QUESTIONS ASKED BY MONGODB TEAM (as a team — no individual attribution)
-- What discovery questions did the MongoDB team ask collectively?
-- Note the customer's response for each
-- Rate effectiveness: did each question uncover useful information?
+          console.log(`  Completed: "${opp.workloadName}"`);
 
-E. UNVALIDATED SUGGESTIONS
-- List features/solutions suggested by the MongoDB team that the customer did NOT confirm or validate
-- Include what follow-up is needed to validate each
+          return {
+            opp,
+            technical: technicalResult.object,
+            commercial: commercialResult.object,
+            strategy: strategyResult.object,
+            mongodbContribution: contributionResult.object,
+            matchedWorkloadId,
+          };
+        })
+      );
 
-F. OVERALL EFFECTIVENESS
-- Was the conversation Customer-Centric, Balanced, or MongoDB-Centric?
-- Did the MongoDB team successfully uncover key customer pain points?
-- Provide a 2-3 sentence assessment of discovery quality
-- List specific areas for improvement
+      // Sequential DB writes — keeps existingWorkloads in-memory state consistent
+      for (const result of parallelResults) {
+        const { opp, technical, commercial, strategy, mongodbContribution, matchedWorkloadId } = result;
 
-FULL TRANSCRIPT:
-${combinedText}`
-    });
+        const matchedWorkload = matchedWorkloadId
+          ? existingWorkloads.find(w => w.workloadId === matchedWorkloadId) ?? null
+          : null;
+        const isMatch = matchedWorkload !== null;
 
-    totalInputTokens += mongodbContributionResult.usage?.inputTokens || 0;
-    totalOutputTokens += mongodbContributionResult.usage?.outputTokens || 0;
-    totalTokens += mongodbContributionResult.usage?.totalTokens || 0;
+        console.log(`  Workload: "${opp.workloadName}" -> ${isMatch ? `merged into "${matchedWorkload!.workloadName}"` : 'new workload created'}`);
 
-    // Attach the same mongodbContribution to every workload
-    for (const dcsData of dcsArray) {
-      dcsData.mongodbContribution = mongodbContributionResult.object;
+        if (isMatch) {
+          const existingDCS: DCSData = {
+            workloadId: matchedWorkload.workloadId,
+            workloadName: matchedWorkload.workloadName,
+            technical: matchedWorkload.technical,
+            commercial: matchedWorkload.commercial,
+            strategy: matchedWorkload.strategy,
+            mongodbContribution: matchedWorkload.mongodbContribution,
+          };
+          const incomingDCS: DCSData = {
+            workloadId: matchedWorkload.workloadId,
+            workloadName: matchedWorkload.workloadName,
+            technical,
+            commercial,
+            strategy,
+            mongodbContribution,
+          };
+          const mergerT0 = Date.now();
+          const { dcs: merged, usage: mergerUsage } = await mergeWorkloadDcs(existingDCS, incomingDCS);
+          if (mergerUsage) {
+            await logAgentCall({ accountId, transcriptId, transcriptName, workloadName: opp.workloadName, agentType: 'merger', usage: mergerUsage, durationMs: Date.now() - mergerT0 });
+          }
+
+          await Workload.findOneAndUpdate(
+            { accountId, workloadId: matchedWorkload.workloadId },
+            {
+              technical: merged.technical,
+              commercial: merged.commercial,
+              strategy: merged.strategy,
+              mongodbContribution: merged.mongodbContribution,
+              lastSeenTranscriptId: transcript._id,
+              $inc: { seenCount: 1 },
+              $addToSet: { transcriptIds: transcript._id },
+            }
+          );
+
+          const idx = existingWorkloads.findIndex(w => w.workloadId === matchedWorkload.workloadId);
+          if (idx >= 0) {
+            existingWorkloads[idx] = {
+              ...existingWorkloads[idx],
+              technical: merged.technical,
+              commercial: merged.commercial,
+              strategy: merged.strategy,
+              mongodbContribution: merged.mongodbContribution,
+            };
+          }
+        } else {
+          const newWorkloadId = crypto.randomUUID();
+          const newWorkload = new Workload({
+            accountId,
+            workloadId: newWorkloadId,
+            workloadName: opp.workloadName,
+            normalizedKey: normalizeWorkloadName(opp.workloadName),
+            transcriptIds: [transcript._id],
+            seenCount: 1,
+            firstSeenTranscriptId: transcript._id,
+            lastSeenTranscriptId: transcript._id,
+            technical,
+            commercial,
+            strategy,
+            mongodbContribution,
+          });
+          await newWorkload.save();
+          existingWorkloads.push(newWorkload.toObject());
+        }
+      }
+
+      // Mark transcript as processed so it won't be reprocessed on next call
+      await Transcript.findByIdAndUpdate(transcript._id, {
+        processedForDcs: true,
+        processedAt: new Date(),
+      } as any);
+
+      // Rebuild Account.dcsData snapshot from Workload collection after each transcript
+      const snapshot = await Workload.find({ accountId }).lean() as any[];
+      await Account.findByIdAndUpdate(accountId, {
+        dcsData: snapshot.map(w => ({
+          workloadId: w.workloadId,
+          workloadName: w.workloadName,
+          technical: w.technical,
+          commercial: w.commercial,
+          strategy: w.strategy,
+          mongodbContribution: w.mongodbContribution,
+          flaggedByUsers: w.flaggedByUsers ?? [],
+        })),
+      });
     }
 
-    console.log(`\n=== Generation Complete: ${dcsArray.length} workloads ===`);
-    console.log('Total token usage:', { totalInputTokens, totalOutputTokens, totalTokens });
-
-    const estimatedCost = totalTokens > 0 ? (totalTokens / 1000) * 0.001 : 0;
-
-    // Update account with array of DCS data (OVERWRITE existing data)
+    // Final status update
     await Account.findByIdAndUpdate(accountId, {
-      dcsData: dcsArray,
       status: 'COMPLETED',
       progressStep: '',
       progressDetails: {},
-      usage: {
-        promptTokens: totalInputTokens,
-        completionTokens: totalOutputTokens,
-        totalTokens: totalTokens,
-        estimatedCost: estimatedCost
-      }
     });
-    
+
     console.log('=== DCS GENERATION COMPLETED ===');
   } catch (error) {
     console.error('Error generating DCS:', error);
@@ -593,6 +803,9 @@ export async function deleteAccount(accountId: string, userEmail: string) {
     if (account.transcriptIds?.length > 0) {
       await Transcript.deleteMany({ _id: { $in: account.transcriptIds } });
     }
+
+    // Delete all Workload documents for this account
+    await Workload.deleteMany({ accountId });
 
     // Delete the account itself
     await Account.findByIdAndDelete(accountId);
@@ -680,6 +893,23 @@ export async function getAccountDetails(accountId: string, userEmail: string) {
       return null; // User has no access to this account
     }
 
+    // Fetch workloads fresh so flagged-per-user filtering is always current.
+    // Falls back to the denormalised Account.dcsData snapshot for accounts that
+    // were generated before the Workload collection existed.
+    const rawWorkloads = await Workload.find({ accountId: account._id }).lean() as any[];
+    const dcsData = rawWorkloads.length > 0
+      ? rawWorkloads
+          .filter(w => !(w.flaggedByUsers ?? []).includes(userEmail))
+          .map(w => ({
+            workloadId: w.workloadId,
+            workloadName: w.workloadName,
+            technical: w.technical,
+            commercial: w.commercial,
+            strategy: w.strategy,
+            mongodbContribution: w.mongodbContribution,
+          }))
+      : (account.dcsData ? JSON.parse(JSON.stringify(account.dcsData)) : null);
+
     return {
       _id: account._id.toString(),
       name: account.name,
@@ -689,7 +919,7 @@ export async function getAccountDetails(accountId: string, userEmail: string) {
       status: account.status,
       progressStep: account.progressStep || '',
       progressDetails: account.progressDetails ? JSON.parse(JSON.stringify(account.progressDetails)) : {},
-      dcsData: account.dcsData ? JSON.parse(JSON.stringify(account.dcsData)) : null,
+      dcsData,
       usage: account.usage ? {
         promptTokens: account.usage.promptTokens || 0,
         completionTokens: account.usage.completionTokens || 0,
@@ -699,7 +929,8 @@ export async function getAccountDetails(accountId: string, userEmail: string) {
       transcripts: (account.transcriptIds as any[]).map(transcript => ({
         _id: transcript._id.toString(),
         filename: transcript.filename,
-        createdAt: transcript.createdAt.toISOString()
+        createdAt: transcript.createdAt.toISOString(),
+        processedForDcs: !!(transcript as any).processedForDcs,
       })),
       createdAt: account.createdAt.toISOString()
     };
@@ -708,6 +939,39 @@ export async function getAccountDetails(accountId: string, userEmail: string) {
     return null;
   }
 }
+// ─── Workload Flag ───────────────────────────────────────────────────────────
+
+/**
+ * Mark a workload as "discussed in call" for the requesting user.
+ * Once flagged the workload is hidden from that user's DCS views.
+ */
+export async function flagWorkload(
+  accountId: string,
+  workloadId: string,
+  userEmail: string
+) {
+  try {
+    await dbConnect();
+
+    // Verify the user has access to this account
+    const account = await Account.findById(accountId).lean() as any;
+    if (!account) return { success: false, error: 'Account not found' };
+    if (account.userEmail !== userEmail && !(account.sharedWith ?? []).includes(userEmail)) {
+      return { success: false, error: 'Access denied' };
+    }
+
+    await Workload.findOneAndUpdate(
+      { accountId, workloadId },
+      { $addToSet: { flaggedByUsers: userEmail } }
+    );
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error flagging workload:', error);
+    return { success: false, error: 'Failed to flag workload' };
+  }
+}
+
 // Sharing Actions
 
 export async function shareAccount(accountId: string, emailToShareWith: string, currentUserEmail: string) {
