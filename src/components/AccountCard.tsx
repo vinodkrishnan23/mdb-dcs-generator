@@ -97,7 +97,7 @@ export function AccountCard({ account, userEmail, onDeleted }: AccountCardProps)
             <div>
               <dt className="text-gray-400 text-xs uppercase tracking-wide font-medium">Created</dt>
               <dd className="text-gray-900 font-semibold mt-0.5">
-                {new Date(account.createdAt).toLocaleDateString()}
+                {new Date(account.createdAt).toLocaleDateString('en-GB')}
               </dd>
             </div>
           </dl>
