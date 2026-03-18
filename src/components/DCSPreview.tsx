@@ -141,7 +141,7 @@ export function DCSPreview({
     );
   }
 
-  if (status === 'COMPLETED' && dcsDataArray.length > 0) {
+  if (status === 'COMPLETED') {
     return (
       <div className="flex flex-col items-center justify-center py-12 gap-4">
         <div className="w-16 h-16 rounded-2xl bg-green-50 flex items-center justify-center">
@@ -162,7 +162,7 @@ export function DCSPreview({
     );
   }
 
-  if (dcsDataArray.length === 0) {
+  if (status !== 'COMPLETED' && dcsDataArray.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 gap-3">
         <div className="w-12 h-12 rounded-2xl bg-gray-50 flex items-center justify-center">
