@@ -495,7 +495,8 @@ ${opp.contextDescription}
 2. IF a metric (e.g. '5TB data') is not explicitly linked to this workload, DELETE IT.
 3. DELETE dates, stakeholder names, or technical details NOT relevant to this workload.
 4. PRESERVE all dates, stakeholder names, technical specs, and pain points that ARE relevant to this workload.
-5. RETURN only the filtered text with clear speaker labels.
+5. PRESERVE any mention of programming languages, frameworks, databases, libraries, or tooling — even if mentioned briefly or as general context (e.g. "we use Python everywhere", "our APIs are Java Spring Boot") — these are needed for tech stack extraction.
+6. RETURN only the filtered text with clear speaker labels.
 
 **ORIGINAL TRANSCRIPT:**
 ${transcript.fullText}`,
@@ -527,22 +528,6 @@ CRITICAL GROUNDING RULE: You must extract information strictly from the CUSTOMER
 - **Negative Consequences:** Technical Root Cause -> Business Impact.
 - **Future State:** Proposed Solution (implementation + migration strategy), Specific Features (Time Series, Atlas Search, Vector Search, Online Archive), Outcomes.
 
-**E. TECH STACK (Current — extract from what the customer mentions)**
-Extract each layer of the customer's current tech stack. For every item provide a one-liner describing its role. Only include items that are explicitly mentioned or strongly implied by the customer.
-- **Databases:** All databases in use (e.g. PostgreSQL 14 — primary OLTP store, Redis — session cache).
-- **Backend Languages / API Frameworks:** Languages and frameworks powering services (e.g. Java Spring Boot — core microservices, Python FastAPI — ML serving layer).
-- **Frontend Technologies:** Web/mobile UI frameworks (e.g. React — customer portal, iOS Swift — mobile app).
-- **Messaging & Streaming:** Event brokers, queues, streaming platforms (e.g. Apache Kafka — event backbone, RabbitMQ — task queue).
-- **AI Stack (only if discussed):**
-  - LLMs in use or planned (name + what they're used for)
-  - Embedding models (name + what is being embedded)
-  - Chunking strategy (how documents are split before embedding)
-  - Orchestration frameworks (LangChain, LlamaIndex, Haystack, AutoGen, etc. + role)
-  - Preferred language for AI/ML workloads
-  - Multimodality (any image/audio/video inputs discussed)
-  - Other AI tooling (guardrails, eval frameworks, fine-tuning, inference servers)
-- **Other tooling** worth noting (CI/CD, observability, infrastructure-as-code, etc.)
-
 **C. USE CASE SUMMARY**
 - Application Purpose, Business Problem, Key Workflows, Data Patterns, Scale Characteristics.
 
@@ -550,6 +535,19 @@ Extract each layer of the customer's current tech stack. For every item provide 
 - Components: Client/UI, Application/Service, Data, External Integration layers.
 - Flows: how data enters, is processed, stored, consumed.
 - Volume & Velocity metrics per flow.
+
+**E. TECH STACK (Current)
+
+IMPORTANT: Be AGGRESSIVE in capturing tech stack. Include ANY technology, language, framework, library, or tool that the customer mentions — even casually, in passing, or as assumed context (e.g. "we use Go for all our APIs", "it's a React app", "all our ML is in Python"). Do NOT skip an item just because it was briefly mentioned.
+
+For each item provide a one-liner describing its role. Use an empty array [] if nothing at all is mentioned for a category.
+
+- **Databases:** Every database, cache, or data store (e.g. PostgreSQL 14 — primary OLTP, Redis — session cache, Elasticsearch — search index).
+- **Backend Languages / API Frameworks:** ALL programming languages and web frameworks used server-side (e.g. Java Spring Boot — core microservices, Python FastAPI — ML serving, Go — high-throughput API gateway, Node.js/Express — BFF layer). Capture BOTH the language AND the framework if named.
+- **Frontend Technologies:** Web and mobile UI (e.g. React — customer-facing portal, Angular — internal dashboard, iOS Swift — mobile app, Flutter — cross-platform).
+- **Messaging & Streaming:** All event brokers and queues (e.g. Apache Kafka — event backbone, RabbitMQ — task queue, AWS SQS — async job dispatch).
+- **AI Stack (only if discussed):** LLMs, embedding models, vector stores, orchestration frameworks, chunking strategy, preferred AI language, multimodality.
+- **Other Tooling:** CI/CD pipelines, infrastructure-as-code, observability/monitoring, security tools (e.g. GitHub Actions — CI/CD, Terraform — IaC, Datadog — APM, Vault — secrets management).
 
 TRANSCRIPT (workload-filtered):
 ${sanitizedContext}`,
@@ -907,6 +905,7 @@ export async function getAccountDetails(accountId: string, userEmail: string) {
             commercial: w.commercial,
             strategy: w.strategy,
             mongodbContribution: w.mongodbContribution,
+            confirmedGenuine: (w.confirmedGenuineByUsers ?? []).includes(userEmail),
           }))
       : (account.dcsData ? JSON.parse(JSON.stringify(account.dcsData)) : null);
 
@@ -942,8 +941,7 @@ export async function getAccountDetails(accountId: string, userEmail: string) {
 // ─── Workload Flag ───────────────────────────────────────────────────────────
 
 /**
- * Mark a workload as "discussed in call" for the requesting user.
- * Once flagged the workload is hidden from that user's DCS views.
+ * Mark a workload as a MongoDB employee example — hidden from this user's view.
  */
 export async function flagWorkload(
   accountId: string,
@@ -969,6 +967,36 @@ export async function flagWorkload(
   } catch (error) {
     console.error('Error flagging workload:', error);
     return { success: false, error: 'Failed to flag workload' };
+  }
+}
+
+/**
+ * Persist that the user confirmed a workload as a genuine customer workload.
+ * Prevents the banner from re-appearing on subsequent visits.
+ */
+export async function confirmWorkloadGenuine(
+  accountId: string,
+  workloadId: string,
+  userEmail: string
+) {
+  try {
+    await dbConnect();
+
+    const account = await Account.findById(accountId).lean() as any;
+    if (!account) return { success: false, error: 'Account not found' };
+    if (account.userEmail !== userEmail && !(account.sharedWith ?? []).includes(userEmail)) {
+      return { success: false, error: 'Access denied' };
+    }
+
+    await Workload.findOneAndUpdate(
+      { accountId, workloadId },
+      { $addToSet: { confirmedGenuineByUsers: userEmail } }
+    );
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error confirming workload genuine:', error);
+    return { success: false, error: 'Failed to confirm workload' };
   }
 }
 

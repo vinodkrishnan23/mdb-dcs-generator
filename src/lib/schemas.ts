@@ -65,7 +65,11 @@ export const technicalSchema = z.object({
           name: z.string().describe("Tool name"),
           summary: z.string().describe("One-liner on role")
         })).describe("Other AI tooling: guardrails, eval frameworks, fine-tuning, inference servers, etc.")
-      }).describe("AI/ML stack — only populate if discussed in the transcript")
+      }).describe("AI/ML stack — only populate if discussed in the transcript"),
+      otherTooling: z.array(z.object({
+        name: z.string().describe("Tool or platform name (e.g. GitHub Actions, Terraform, Datadog, Prometheus)"),
+        summary: z.string().describe("One-liner on role: CI/CD, infrastructure-as-code, observability, etc.")
+      })).describe("Other tooling worth noting: CI/CD, observability, IaC, security, etc.")
     }).describe("Current technology stack across all layers")
   }),
   futureState: z.object({

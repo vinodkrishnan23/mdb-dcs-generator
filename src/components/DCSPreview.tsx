@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { DCSData } from '@/lib/schemas';
 import { AgentFlowDiagram } from './AgentFlowDiagram';
-import { Clock, AlertCircle, FileText, Coins } from 'lucide-react';
+import { Clock, AlertCircle, FileText, Coins, Timer } from 'lucide-react';
 
 interface LiveUsage {
   promptTokens: number;
@@ -31,6 +31,8 @@ export function DCSPreview({
   const [progressStep, setProgressStep] = useState(initialProgressStep);
   const [progressDetails, setProgressDetails] = useState(initialProgressDetails);
   const [liveUsage, setLiveUsage] = useState<LiveUsage | null>(null);
+  const [elapsedSecs, setElapsedSecs] = useState(0);
+  const startedAtRef = useRef<number | null>(null);
   const [dcsDataArray, setDcsDataArray] = useState<DCSData[]>(() => {
     if (!initialDcsData) return [];
     if (Array.isArray(initialDcsData)) return initialDcsData;
@@ -49,6 +51,11 @@ export function DCSPreview({
           setProgressStep(data.progressStep);
           setProgressDetails(data.progressDetails);
           if (data.usage) setLiveUsage(data.usage);
+
+          // Start the elapsed-time clock on first PROCESSING poll
+          if (data.status === 'PROCESSING' && startedAtRef.current === null) {
+            startedAtRef.current = Date.now();
+          }
           
           if (data.status === 'COMPLETED' && data.dcsData) {
             const dataArray = Array.isArray(data.dcsData) ? data.dcsData : [data.dcsData];
@@ -65,6 +72,16 @@ export function DCSPreview({
     return () => clearInterval(interval);
   }, [accountId]);
 
+  // 1-second ticker for the elapsed time display
+  useEffect(() => {
+    if (status !== 'PROCESSING') return;
+    if (startedAtRef.current === null) startedAtRef.current = Date.now();
+    const tick = setInterval(() => {
+      setElapsedSecs(Math.floor((Date.now() - startedAtRef.current!) / 1000));
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [status]);
+
   if (error) {
     return (
       <div className="text-center py-12">
@@ -78,31 +95,48 @@ export function DCSPreview({
   }
 
   if (status === 'PROCESSING') {
+    const mins = Math.floor(elapsedSecs / 60);
+    const secs = elapsedSecs % 60;
+    const elapsedLabel = mins > 0
+      ? `${mins}m ${secs.toString().padStart(2, '0')}s`
+      : `${secs}s`;
+
     return (
       <div className="py-4">
         <AgentFlowDiagram currentStep={progressStep} />
-        {liveUsage && (
-          <div className="mt-4 mx-2 px-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-1.5 text-gray-500">
-              <Coins className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-              <span className="text-xs font-medium text-gray-600">Token Usage</span>
-            </div>
-            <div className="flex items-center gap-3 flex-wrap ml-1">
-              <span className="text-xs text-gray-500">
-                <span className="font-medium text-gray-700">{liveUsage.promptTokens.toLocaleString()}</span> in
-              </span>
-              <span className="text-xs text-gray-500">
-                <span className="font-medium text-gray-700">{liveUsage.completionTokens.toLocaleString()}</span> out
-              </span>
-              <span className="text-xs text-gray-500">
-                <span className="font-medium text-gray-700">{liveUsage.totalTokens.toLocaleString()}</span> total
-              </span>
+        <div className="mt-4 mx-2 px-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl flex items-center gap-3 flex-wrap">
+          {/* Elapsed time — always visible */}
+          <div className="flex items-center gap-1.5">
+            <Timer className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+            <span className="text-xs font-semibold text-blue-700 tabular-nums">{elapsedLabel}</span>
+          </div>
+
+          {liveUsage ? (
+            <>
+              <span className="text-gray-200 select-none">|</span>
+              <div className="flex items-center gap-1.5">
+                <Coins className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                <span className="text-xs font-medium text-gray-600">Tokens</span>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-xs text-gray-500">
+                  <span className="font-medium text-gray-700">{liveUsage.promptTokens.toLocaleString()}</span> in
+                </span>
+                <span className="text-xs text-gray-500">
+                  <span className="font-medium text-gray-700">{liveUsage.completionTokens.toLocaleString()}</span> out
+                </span>
+                <span className="text-xs text-gray-500">
+                  <span className="font-medium text-gray-700">{liveUsage.totalTokens.toLocaleString()}</span> total
+                </span>
+              </div>
               <span className="ml-auto text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-100">
                 ${liveUsage.estimatedCost.toFixed(4)}
               </span>
-            </div>
-          </div>
-        )}
+            </>
+          ) : (
+            <span className="text-xs text-gray-400 italic">Waiting for first agent…</span>
+          )}
+        </div>
       </div>
     );
   }
