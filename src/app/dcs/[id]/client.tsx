@@ -123,7 +123,7 @@ export function DCSPageClient({ params, user }: DCSPageClientProps) {
                 Discovery Capture Sheet
               </h1>
               <p className="text-green-600">
-                {account.name} • Generated on {new Date().toLocaleDateString()}
+                {account.name} • Generated on {new Date().toLocaleDateString('en-GB')}
               </p>
               {account.usage && (
                 <div className="mt-2 text-sm text-green-600">
@@ -171,6 +171,7 @@ export function DCSPageClient({ params, user }: DCSPageClientProps) {
 
         <div className="bg-white rounded-lg shadow-lg p-8" id="dcs-content">
           <DCSDisplay
+            key={currentDCS.workloadId}
             dcsData={currentDCS}
             accountName={account.name}
             onFlag={handleFlag}

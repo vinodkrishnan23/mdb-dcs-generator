@@ -147,9 +147,10 @@ export function DCSDisplay({ dcsData, accountName, onFlag, onConfirmGenuine, isC
   const [saving, setSaving] = useState(false);
   const [flagging, setFlagging] = useState(false);
 
-  // Sync when the parent re-loads data from DB (e.g. after page navigation)
+  // Sync state with the prop whenever the parent updates it (e.g. after saving
+  // to DB updates dcsData without triggering a key-driven remount).
   useEffect(() => {
-    if (isConfirmedGenuine) setGenuineAnswer(true);
+    setGenuineAnswer(isConfirmedGenuine ? true : null);
   }, [isConfirmedGenuine]);
 
   const handleNo = async () => {

@@ -95,7 +95,7 @@ export function AccountPageClient({ params, user }: AccountPageClientProps) {
         {/* Meta bar */}
         <div className="flex items-center gap-2 text-xs text-gray-400 mb-6">
           <Calendar className="w-3.5 h-3.5" />
-          Created {new Date(account.createdAt).toLocaleDateString()}
+          Created {new Date(account.createdAt).toLocaleDateString('en-GB')}
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
@@ -130,7 +130,7 @@ export function AccountPageClient({ params, user }: AccountPageClientProps) {
                         <span className="text-sm font-medium text-gray-800 truncate">{t.filename}</span>
                       </div>
                       <span className="text-xs text-gray-400 flex-shrink-0 ml-2">
-                        {new Date(t.createdAt).toLocaleDateString()}
+                        {new Date(t.createdAt).toLocaleDateString('en-GB')}
                       </span>
                     </div>
                   ))}
