@@ -81,30 +81,14 @@ export async function generateDCS(accountId: string) {
       return { success: true as const, allProcessed: true as const };
     }
 
-    // Delete any stale workloads and agent logs from previous runs
-    await Promise.all([
-      Workload.deleteMany({ accountId }),
-      AgentLog.deleteMany({ accountId }),
-    ]);
-
-    // Reset all transcripts (including previously processed ones) so everything
-    // is re-derived consistently with the new transcript set
-    await Transcript.updateMany(
-      { accountId },
-      { $set: { processedForDcs: false }, $unset: { processedAt: '' } }
-    );
-
-    // Set status to PROCESSING with router step
-    await Account.findByIdAndUpdate(
-      accountId,
-      {
-        status: 'PROCESSING',
-        progressStep: 'router',
-        progressDetails: {},
-        dcsData: [],
-        usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, estimatedCost: 0 },
-      }
-    );
+    // Incremental mode: keep existing Workload documents, dcsData snapshot, and
+    // accumulated usage. Only unprocessed transcripts will be run by
+    // processDCSGeneration — new workloads are created, existing ones are merged.
+    await Account.findByIdAndUpdate(accountId, {
+      status: 'PROCESSING',
+      progressStep: 'router',
+      progressDetails: {},
+    });
     
     revalidatePath(`/account/${accountId}`);
 
